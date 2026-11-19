@@ -30,7 +30,9 @@ export const CAR = {
   maxSteer: 0.52, // radians at walking pace
   halfWidth: 0.95,
   driftTurn: 9, // m/s^2 of extra turn a slide gives (momentum swung round towards the nose)
-  driftScrub: 0.9, // share of speed lost per second at 40+ degrees sideways
+  driftScrub: 0.5, // share of speed lost per second at 40+ degrees sideways
+  driftHold: 0.3, // drift angle (radians, ~17 degrees) held with a little steering into the corner
+  driftRange: 0.14, // full steering into the corner adds this much (~25 degrees in all)
   reverseDelay: 0.3, // seconds stopped with the brake held before it reverses
   handbrakeGrip: 0.42, // rear grip with the handbrake on
   reverseSpeed: 11,
@@ -169,12 +171,23 @@ export function stepCar(c, track, input, dt = DT) {
   const fy = fyR + fyF * cosD + fxF * sinD;
   let torque = P.a * (fyF * cosD + fxF * sinD) - P.b * fyR;
   c.fyF = fyF; c.fyR = fyR;
+  // drift control: once the car is properly sideways (over ~8 degrees) and
+  // you're on the throttle, it holds the slide for you while you keep steering
+  // into the corner (more steering = a deeper drift). Centre the steering,
+  // countersteer or lift off and the car straightens up and grips again.
+  const B = c.u > 6 ? Math.abs(Math.atan2(c.v, c.u)) : 0;
+  const bSign = Math.sign(c.v) || 1;
+  const dB = (B - (c.prevB || 0)) / dt;
+  c.prevB = B;
+  const hold = Math.max(0, Math.min(1, (B - 0.14) / 0.08)) * (throttle > 0 ? 1 : handbrake ? 0.6 : 0) * (c.onGrass ? 0.5 : 1);
+  c.driftHold = hold;
+
   // stability control: if the car is rotating faster than the steering asks
   // for and the rear is sliding, gently hold it back (off while the handbrake is
-  // on, so you can kick the rear out on purpose)
+  // on or drift control is holding a slide, so you can drift on purpose)
   const rWant = (c.u * Math.tan(delta)) / P.wheelbase;
   const over = c.r - rWant;
-  if (!handbrake && c.slipR > 0.75 && Math.abs(c.r) > Math.abs(rWant) && Math.sign(over) === Math.sign(c.r) && c.u > 5) {
+  if (!handbrake && hold < 0.5 && c.slipR > 0.75 && Math.abs(c.r) > Math.abs(rWant) && Math.sign(over) === Math.sign(c.r) && c.u > 5) {
     torque -= Math.max(-9000, Math.min(9000, over * 26000));
   }
   // spin guard: past ~50 degrees sideways and still rotating further, damp the
@@ -208,6 +221,28 @@ export function stepCar(c, track, input, dt = DT) {
       c.v = ns * Math.sin(nb);
     }
   }
+  // drift control (see above): turn the nose towards the chosen slide angle
+  // without touching the car's momentum, and let the nose follow the path
+  if (hold > 0 && c.u > 2) {
+    const b = Math.atan2(c.v, c.u);
+    const into = -Math.sign(b) * Math.max(-1, Math.min(1, input.steer || 0)); // +1 = steering into the corner
+    const holding = into > 0.05;
+    const target = holding ? Math.sign(b) * (P.driftHold + P.driftRange * into) : 0;
+    // straightening (no steering) eases out; countersteering snaps back quicker
+    const rate = holding ? 5 : into < -0.05 ? 4 : 2.2;
+    const dh = -(target - b) * Math.min(1, rate * dt) * hold; // new slide = old + (target - old) * share
+    const cs = Math.cos(dh), sn = Math.sin(dh);
+    const u0 = c.u, v0 = c.v;
+    c.h += dh;
+    c.u = u0 * cs + v0 * sn;
+    c.v = -u0 * sn + v0 * cs;
+    const velDir = c.h + Math.atan2(c.v, c.u);
+    if (c.prevVelDir !== undefined) {
+      let w = (velDir - c.prevVelDir) / dt; w -= 0; // rate the path is turning
+      if (Math.abs(w) < 6) c.r += (w - c.r) * Math.min(1, 8 * dt) * hold;
+    }
+  }
+  c.prevVelDir = c.h + Math.atan2(c.v, c.u);
   c.drift = Math.abs(Math.atan2(c.v, Math.max(Math.abs(c.u), 1)));
 
   // almost stopped with nothing pressed: settle completely
