@@ -717,7 +717,8 @@ function frame(now) {
     const rp = showGhost(recordModel, gm === 'record' || gm === 'both' ? recordGhost : null, c, dt);
 
     // tyre smoke and skid marks
-    const slide = Math.max(c.slipR - 0.95, c.slipF - 1.05);
+    // smoke and marks for real slides, not just hard cornering
+    const slide = Math.max(c.slipR - 1.3, c.slipF - 1.5, (c.drift || 0) > 0.12 ? (c.drift - 0.08) * 3 : 0);
     for (let w = 0; w < 2; w++) {
       const side = w ? 0.86 : -0.86;
       const wx = c.x - ch * 1.3 - sh * side, wz = c.z - sh * 1.3 + ch * side;

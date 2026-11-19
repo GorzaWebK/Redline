@@ -58,7 +58,7 @@ export class Sound {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.engine.set(rpm, throttle, active, t);
-    const sq = active ? Math.max(0, Math.min(1, (slip - 0.75) * 2.2)) : 0;
+    const sq = active ? Math.max(0, Math.min(1, (slip - 0.95) * 1.6)) : 0;
     this.squealGain.gain.setTargetAtTime(sq * 0.12 * Math.min(1, speed / 8), t, 0.04);
     this.squealFilter.frequency.setTargetAtTime(1300 + slip * 250, t, 0.1);
     this.grassGain.gain.setTargetAtTime(active && grass ? Math.min(0.35, speed * 0.015) : 0, t, 0.05);

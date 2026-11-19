@@ -33,7 +33,11 @@ export function speedProfile(track, grip = 0.9) {
     }
     for (let k = N - 1; k >= 0; k--) {
       const i = k, j = (k + 1) % N;
-      v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * brakeA * SPACING));
+      // the tyres share their grip between turning and braking: only brake
+      // with what's left over after the cornering at that point
+      const lat = v[j] * v[j] * Math.abs(curv[j]);
+      const a = Math.max(2.5, Math.sqrt(Math.max(0, (mu * G) ** 2 - lat * lat)) * 0.78);
+      v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * Math.min(brakeA, a) * SPACING));
     }
   }
   return v;
