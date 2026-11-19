@@ -1,6 +1,4 @@
 // Every sound is synthesised with the Web Audio API: no audio files.
-// The engine is a few oscillators at the firing frequency of a four-cylinder
-// engine (revs / 30), roughened by a wave shaper and opened up by throttle.
 
 export class Sound {
   constructor() {
@@ -34,30 +32,8 @@ export class Sound {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     const loopNoise = () => { const s = ctx.createBufferSource(); s.buffer = this.noise; s.loop = true; s.start(); return s; };
 
-    // engine
-    this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
-    this.engFilter = ctx.createBiquadFilter(); this.engFilter.type = 'lowpass'; this.engFilter.frequency.value = 900; this.engFilter.Q.value = 2;
-    const shaper = ctx.createWaveShaper();
-    const curve = new Float32Array(1024);
-    for (let i = 0; i < 1024; i++) { const x = (i / 1023) * 2 - 1; curve[i] = Math.tanh(x * 2.5); }
-    shaper.curve = curve;
-    const mix = ctx.createGain(); mix.gain.value = 0.5;
-    mix.connect(shaper).connect(this.engFilter).connect(this.engGain).connect(this.sfx);
-    this.oscs = [
-      { o: ctx.createOscillator(), type: 'sawtooth', mult: 1, g: 0.5 },
-      { o: ctx.createOscillator(), type: 'square', mult: 0.5, g: 0.35 },
-      { o: ctx.createOscillator(), type: 'sawtooth', mult: 2.01, g: 0.12 },
-      { o: ctx.createOscillator(), type: 'triangle', mult: 0.25, g: 0.4 },
-    ];
-    for (const s of this.oscs) {
-      s.o.type = s.type; s.o.frequency.value = 40 * s.mult;
-      const g = ctx.createGain(); g.gain.value = s.g;
-      s.o.connect(g).connect(mix); s.o.start();
-    }
-    // a little rasp from noise that follows the revs
-    this.raspFilter = ctx.createBiquadFilter(); this.raspFilter.type = 'bandpass'; this.raspFilter.Q.value = 3;
-    this.raspGain = ctx.createGain(); this.raspGain.gain.value = 0;
-    loopNoise().connect(this.raspFilter).connect(this.raspGain).connect(this.engFilter);
+    // engine (see buildEngine below)
+    this.engine = buildEngine(ctx, this.sfx, this.noise);
 
     // tyre squeal
     this.squealFilter = ctx.createBiquadFilter(); this.squealFilter.type = 'bandpass'; this.squealFilter.frequency.value = 1500; this.squealFilter.Q.value = 9;
@@ -81,12 +57,7 @@ export class Sound {
   update({ rpm = 1000, throttle = 0, speed = 0, slip = 0, grass = false, active = true }) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const f = rpm / 30;
-    for (const s of this.oscs) s.o.frequency.setTargetAtTime(f * s.mult, t, 0.03);
-    this.engFilter.frequency.setTargetAtTime(500 + throttle * 1800 + rpm * 0.15, t, 0.05);
-    this.raspFilter.frequency.setTargetAtTime(f * 4, t, 0.05);
-    this.raspGain.gain.setTargetAtTime(active ? 0.05 + throttle * 0.12 : 0, t, 0.05);
-    this.engGain.gain.setTargetAtTime(active ? 0.16 + throttle * 0.14 : 0, t, 0.06);
+    this.engine.set(rpm, throttle, active, t);
     const sq = active ? Math.max(0, Math.min(1, (slip - 0.75) * 2.2)) : 0;
     this.squealGain.gain.setTargetAtTime(sq * 0.12 * Math.min(1, speed / 8), t, 0.04);
     this.squealFilter.frequency.setTargetAtTime(1300 + slip * 250, t, 0.1);
@@ -134,4 +105,69 @@ export class Sound {
     notes.forEach((n, i) => this.tone({ type: 'triangle', freq: n, dur: 0.3, gain: 0.2, delay: i * 0.13 }));
   }
   click() { this.tone({ freq: 880, dur: 0.05, gain: 0.06 }); }
+}
+
+/**
+ * The engine: one custom waveform shaped like the exhaust pulses of a
+ * four-cylinder engine (firing frequency = revs / 30), a second copy a hair
+ * out of tune for body, a half-speed rumble that also wobbles the volume
+ * (uneven firing gives the growl), and a little breathy exhaust noise. A
+ * low-pass filter opens up as you press the throttle; off the throttle it goes
+ * quieter and more muffled. No distortion, so it never gets buzzy.
+ * Returns { set(rpm, throttle, active, time) }.
+ */
+export function buildEngine(ctx, dest, noise) {
+  const N = 40, real = new Float32Array(N + 1), imag = new Float32Array(N + 1);
+  for (let n = 1; n <= N; n++) {
+    // falling harmonics with gentle bumps, like a muffled exhaust pulse
+    imag[n] = (Math.exp(-n / 6) * (1 + 0.45 * Math.cos(n * 0.8))) / Math.sqrt(n);
+  }
+  const wave = ctx.createPeriodicWave(real, imag);
+
+  const out = ctx.createGain(); out.gain.value = 0;
+  const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 30;
+  const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 160; body.Q.value = 0.8; body.gain.value = 5;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.6; lp.frequency.value = 600;
+  lp.connect(body).connect(hp).connect(out).connect(dest);
+
+  // everything goes through a gain the rumble wobbles
+  const wobble = ctx.createGain(); wobble.gain.value = 0.75;
+  wobble.connect(lp);
+
+  const main = ctx.createOscillator(); main.setPeriodicWave(wave);
+  const second = ctx.createOscillator(); second.setPeriodicWave(wave);
+  const sub = ctx.createOscillator(); sub.type = 'sine';
+  const am = ctx.createOscillator(); am.type = 'sine';
+  const gMain = ctx.createGain(); gMain.gain.value = 0.55;
+  const gSecond = ctx.createGain(); gSecond.gain.value = 0.3;
+  const gSub = ctx.createGain(); gSub.gain.value = 0.4;
+  const amDepth = ctx.createGain(); amDepth.gain.value = 0.2;
+  main.connect(gMain).connect(wobble);
+  second.connect(gSecond).connect(wobble);
+  sub.connect(gSub).connect(wobble);
+  am.connect(amDepth).connect(wobble.gain);
+
+  const hiss = ctx.createBufferSource(); hiss.buffer = noise; hiss.loop = true;
+  const hissF = ctx.createBiquadFilter(); hissF.type = 'bandpass'; hissF.Q.value = 1.1;
+  const hissG = ctx.createGain(); hissG.gain.value = 0;
+  hiss.connect(hissF).connect(hissG).connect(lp);
+
+  for (const o of [main, second, sub, am]) o.start();
+  hiss.start();
+
+  return {
+    set(rpm, throttle, active, t) {
+      const f = Math.max(20, rpm / 30);
+      const k = 0.04;
+      main.frequency.setTargetAtTime(f, t, k);
+      second.frequency.setTargetAtTime(f * 1.004, t, k);
+      sub.frequency.setTargetAtTime(f / 2, t, k);
+      am.frequency.setTargetAtTime(f / 2, t, k);
+      hissF.frequency.setTargetAtTime(f * 3, t, k);
+      lp.frequency.setTargetAtTime(Math.min(3200, Math.max(220, f * (2.2 + throttle * 5))), t, 0.06);
+      hissG.gain.setTargetAtTime(active ? 0.02 + throttle * 0.05 : 0, t, 0.08);
+      const loud = 0.2 + throttle * 0.16 + Math.min(1, rpm / 8000) * 0.06;
+      out.gain.setTargetAtTime(active ? loud : 0, t, 0.08);
+    },
+  };
 }

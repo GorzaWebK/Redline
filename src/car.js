@@ -29,6 +29,9 @@ export const CAR = {
   grassDrag: 260, // extra N per m/s on grass
   maxSteer: 0.52, // radians at walking pace
   halfWidth: 0.95,
+  driftTurn: 9, // m/s^2 of extra turn a slide gives (momentum swung round towards the nose)
+  driftScrub: 0.14, // share of speed lost per second while fully sideways
+  handbrakeGrip: 0.42, // rear grip with the handbrake on
   reverseSpeed: 11,
 };
 CAR.wheelbase = CAR.a + CAR.b;
@@ -93,6 +96,7 @@ export function stepCar(c, track, input, dt = DT) {
   // driver input -> forces along the car
   const throttle = Math.max(0, Math.min(1, input.throttle || 0));
   const brake = Math.max(0, Math.min(1, input.brake || 0));
+  const handbrake = !!input.handbrake && Math.abs(c.u) > 2;
   let drive = 0, brakeF = 0, brakeR = 0;
   if (brake > 0 && c.u < 0.6 && throttle === 0) {
     // reversing
@@ -114,7 +118,8 @@ export function stepCar(c, track, input, dt = DT) {
   fxF = Math.max(-mu * Ff, Math.min(mu * Ff, fxF));
   // traction control: drive never uses more than 75% of the rear grip, so
   // flooring it out of a corner can't spin the car
-  const muR = mu * P.rearGrip;
+  const muR = mu * P.rearGrip * (handbrake ? P.handbrakeGrip : 1);
+  if (handbrake) fxR = -sgn * Math.min(muR * Fr * 0.9, stopF * 0.4); // rear wheels locked
   fxR = Math.max(-muR * Fr, Math.min(0.75 * muR * Fr, fxR));
 
   // slip angles (with a floor on speed so standing still is calm)
@@ -140,10 +145,11 @@ export function stepCar(c, track, input, dt = DT) {
   const fy = fyR + fyF * cosD + fxF * sinD;
   let torque = P.a * (fyF * cosD + fxF * sinD) - P.b * fyR;
   // stability control: if the car is rotating faster than the steering asks
-  // for and the rear is sliding, gently hold it back
+  // for and the rear is sliding, gently hold it back (off while the handbrake is
+  // on, so you can kick the rear out on purpose)
   const rWant = (c.u * Math.tan(delta)) / P.wheelbase;
   const over = c.r - rWant;
-  if (c.slipR > 0.75 && Math.abs(c.r) > Math.abs(rWant) && Math.sign(over) === Math.sign(c.r) && c.u > 5) {
+  if (!handbrake && c.slipR > 0.75 && Math.abs(c.r) > Math.abs(rWant) && Math.sign(over) === Math.sign(c.r) && c.u > 5) {
     torque -= Math.max(-9000, Math.min(9000, over * 26000));
   }
 
@@ -153,6 +159,23 @@ export function stepCar(c, track, input, dt = DT) {
   c.v += dv * dt;
   c.r += (torque / P.inertia) * dt;
   c.ax = c.ax + (fx / P.mass - c.ax) * 0.2;
+
+  // drifting: while the car is sliding, its momentum swings round towards where
+  // the nose points (a slide carries you through the corner instead of straight
+  // on), losing a little speed to tyre scrub
+  const sp = Math.hypot(c.u, c.v);
+  if (sp > 6 && c.u > 2) {
+    const b = Math.atan2(c.v, c.u);
+    const amt = Math.max(0, Math.min(1, (Math.abs(b) - 0.09) / 0.12)) * (c.onGrass ? 0.4 : 1);
+    if (amt > 0) {
+      const turn = Math.min(Math.abs(b), ((P.driftTurn * amt) / sp) * dt);
+      const nb = b - Math.sign(b) * turn;
+      const ns = sp * (1 - P.driftScrub * amt * Math.min(1, Math.abs(b) / 0.6) * dt);
+      c.u = ns * Math.cos(nb);
+      c.v = ns * Math.sin(nb);
+    }
+  }
+  c.drift = Math.abs(Math.atan2(c.v, Math.max(Math.abs(c.u), 1)));
 
   // almost stopped with nothing pressed: settle completely
   if (Math.abs(c.u) < 0.25 && throttle === 0 && brake === 0) {

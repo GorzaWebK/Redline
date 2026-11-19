@@ -21,11 +21,12 @@ export class Input {
     return null;
   }
 
-  /** Current controls: { throttle 0..1, brake 0..1, steer -1..1 (+ right) }. */
+  /** Current controls: { throttle 0..1, brake 0..1, steer -1..1 (+ right), handbrake }. */
   read() {
     const k = this.keys;
     let throttle = k.has('KeyW') || k.has('ArrowUp') ? 1 : 0;
-    let brake = k.has('KeyS') || k.has('ArrowDown') || k.has('Space') ? 1 : 0;
+    let brake = k.has('KeyS') || k.has('ArrowDown') ? 1 : 0;
+    let handbrake = k.has('Space');
     let steer = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
     const p = this.pad();
     if (p) {
@@ -35,15 +36,16 @@ export class Input {
       const rt = p.buttons[7]?.value || 0, lt = p.buttons[6]?.value || 0;
       if (rt > 0.05 || p.buttons[0]?.pressed) throttle = Math.max(throttle, p.buttons[0]?.pressed ? 1 : rt);
       if (lt > 0.05 || p.buttons[1]?.pressed) brake = Math.max(brake, p.buttons[1]?.pressed ? 1 : lt);
+      if (p.buttons[2]?.pressed) handbrake = true;
     }
-    return { throttle, brake, steer };
+    return { throttle, brake, steer, handbrake };
   }
 
-  /** Gamepad buttons pressed since last frame, mapped to keys: Start = Escape, Y = R, Back = C, RB = V. */
+  /** Gamepad buttons pressed since last frame, mapped to keys: Start = Escape, Y = R, Back = C, RB = V. (X is the handbrake.) */
   pollPad() {
     const p = this.pad();
     if (!p) return;
-    const map = { 9: 'Escape', 3: 'KeyR', 8: 'KeyC', 5: 'KeyV', 2: 'KeyN' };
+    const map = { 9: 'Escape', 3: 'KeyR', 8: 'KeyC', 5: 'KeyV' };
     for (const [b, code] of Object.entries(map)) {
       const down = !!p.buttons[b]?.pressed;
       if (down && !this.padPrev[b]) this.handlers.key?.(code, { pad: true });
