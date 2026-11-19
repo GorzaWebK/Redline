@@ -1,0 +1,56 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "redline": {
+      "scores": {
+        "$track": {
+          ".read": "$track.matches(/^t([1-9]|1[0-9]|2[0-4])$/)",
+          ".indexOn": [
+            "time"
+          ],
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && $track.matches(/^t([1-9]|1[0-9]|2[0-4])$/)",
+            ".validate": "newData.hasChildren(['name', 'time', 'lap', 'at'])",
+            "name": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 16 && newData.val().matches(/^[A-Za-z0-9 _.-]+$/)"
+            },
+            "time": {
+              ".validate": "newData.isNumber() && newData.val() >= 40 && newData.val() < 3600 && (!data.exists() || newData.val() <= data.val())"
+            },
+            "lap": {
+              ".validate": "newData.isNumber() && newData.val() >= 12 && newData.val() * 3 <= newData.parent().child('time').val() + 0.01"
+            },
+            "at": {
+              ".validate": "newData.val() === now"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      },
+      "ghosts": {
+        "$track": {
+          ".read": "$track.matches(/^t([1-9]|1[0-9]|2[0-4])$/)",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && $track.matches(/^t([1-9]|1[0-9]|2[0-4])$/)",
+            ".validate": "newData.hasChildren(['time', 'data', 'at']) && newData.child('time').val() === newData.parent().parent().parent().child('scores').child($track).child($uid).child('time').val()",
+            "time": {
+              ".validate": "newData.isNumber()"
+            },
+            "data": {
+              ".validate": "newData.isString() && newData.val().length <= 150000 && newData.val().beginsWith('R1.')"
+            },
+            "at": {
+              ".validate": "newData.val() === now"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

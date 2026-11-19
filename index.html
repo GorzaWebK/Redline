@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Redline</title>
+    <meta name="description" content="Redline: a time trial racing game in your browser. 24 circuits, medals and ghost cars." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314161c'/%3E%3Cpath d='M10 44 A24 24 0 0 1 54 44' stroke='%23fff' stroke-width='5' fill='none'/%3E%3Cpath d='M32 44 L48 22' stroke='%23e8322a' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <!-- driving HUD -->
+    <div id="hud" class="hidden">
+      <div class="hud-tl">
+        <div class="lapline">LAP <b id="lapNum">1</b><span>/<span id="lapTotal">3</span></span></div>
+        <div id="lapTime" class="mono">0:00.000</div>
+        <div id="bestLap" class="sub">Best lap --</div>
+        <div id="lapList" class="sub"></div>
+      </div>
+      <div class="hud-top">
+        <div id="timer" class="mono">0:00.000</div>
+        <div id="target" class="sub"></div>
+        <div id="delta" class="mono"></div>
+      </div>
+      <canvas id="minimap" width="220" height="220"></canvas>
+      <div class="hud-br">
+        <div class="speedrow"><div id="speed" class="mono">0</div><div id="unit">KM/H</div></div>
+        <div class="gearrow"><div id="gear">1</div><div class="rpm"><div id="rpmFill"></div></div></div>
+      </div>
+      <div id="countdown"></div>
+      <div id="toast"></div>
+      <div id="wrongway" class="hidden">WRONG WAY</div>
+      <div id="fps" class="hidden"></div>
+      <div id="hint" class="sub">C reset car · R restart · V camera · Esc pause</div>
+    </div>
+
+    <!-- main menu -->
+    <div id="menu" class="screen">
+      <div class="panel main">
+        <h1 class="logo">RED<span>LINE</span></h1>
+        <p class="tag">Time trial racing. Find the line, beat the ghost, take the gold.</p>
+        <div class="nextline"><span id="nextName">Track 1</span><span id="nextBest">Best --</span></div>
+        <button id="btnPlay" class="primary">RACE</button>
+        <div class="grid3">
+          <button id="btnTracks">Tracks</button>
+          <button id="btnGarage">Garage</button>
+          <button id="btnBoards">Leaderboards</button>
+          <button id="btnStats">Stats</button>
+          <button id="btnSettings">Settings</button>
+          <button id="btnControls">Controls</button>
+        </div>
+        <p class="foot" id="medalTotals"></p>
+        <p class="foot2"><a href="#" id="btnWatch">Watch the autopilot drive</a></p>
+      </div>
+    </div>
+
+    <!-- track select -->
+    <div id="tracks" class="screen hidden">
+      <div class="panel wide">
+        <div class="head"><h2>Tracks</h2><span id="trackTotals" class="sub"></span><button class="back">Back</button></div>
+        <div id="trackList"></div>
+      </div>
+    </div>
+
+    <!-- garage -->
+    <div id="garage" class="screen hidden">
+      <div class="panel side">
+        <div class="head"><h2>Garage</h2><button class="back">Back</button></div>
+        <p class="sub">Pick a paint. More unlock as you win medals.</p>
+        <div id="paintList"></div>
+      </div>
+    </div>
+
+    <!-- leaderboards -->
+    <div id="boards" class="screen hidden">
+      <div class="panel">
+        <div class="head"><h2>Leaderboards</h2><button class="back">Back</button></div>
+        <label class="namerow">Your driver name <input id="nameInput" maxlength="16" spellcheck="false" /></label>
+        <div class="boardnav"><button id="boardPrev">‹</button><div id="boardTitle"></div><button id="boardNext">›</button></div>
+        <div id="boardList" class="boardlist"></div>
+        <div id="boardMe" class="sub"></div>
+      </div>
+    </div>
+
+    <!-- stats -->
+    <div id="stats" class="screen hidden">
+      <div class="panel">
+        <div class="head"><h2>Stats</h2><button class="back">Back</button></div>
+        <div id="statList"></div>
+      </div>
+    </div>
+
+    <!-- settings -->
+    <div id="settings" class="screen hidden">
+      <div class="panel">
+        <div class="head"><h2>Settings</h2><button class="back">Back</button></div>
+        <div class="rows">
+          <label>Graphics <select id="setQuality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+          <label>Camera <select id="setCamera"><option value="chase">Chase</option><option value="far">Far chase</option><option value="hood">Hood</option><option value="bumper">Bumper</option></select></label>
+          <label>Speed units <select id="setUnits"><option value="kmh">km/h</option><option value="mph">mph</option></select></label>
+          <label>Field of view <input id="setFov" type="range" min="55" max="95" step="1" /><span id="fovVal"></span></label>
+          <label>Racing line guide <input id="setLine" type="checkbox" /></label>
+          <label>Ghost car <select id="setGhost"><option value="best">Your best</option><option value="record">World record</option><option value="both">Both</option><option value="off">Off</option></select></label>
+          <label>Camera shake <input id="setShake" type="checkbox" /></label>
+          <label>Effects volume <input id="setSfx" type="range" min="0" max="1" step="0.05" /></label>
+          <label>Music volume <input id="setMusic" type="range" min="0" max="1" step="0.05" /></label>
+          <label>Mute all <input id="setMute" type="checkbox" /></label>
+          <label>Show FPS <input id="setFps" type="checkbox" /></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- controls -->
+    <div id="controls" class="screen hidden">
+      <div class="panel">
+        <div class="head"><h2>Controls</h2><button class="back">Back</button></div>
+        <table class="keys">
+          <tr><td>W / ↑</td><td>Accelerate</td></tr>
+          <tr><td>S / ↓ / Space</td><td>Brake (hold when stopped to reverse)</td></tr>
+          <tr><td>A D / ← →</td><td>Steer</td></tr>
+          <tr><td>C</td><td>Put the car back on the track (the clock keeps running)</td></tr>
+          <tr><td>R</td><td>Restart the race</td></tr>
+          <tr><td>V</td><td>Change camera</td></tr>
+          <tr><td>L</td><td>Racing line guide on/off</td></tr>
+          <tr><td>G</td><td>Ghost car: your best, world record, both or off</td></tr>
+          <tr><td>M</td><td>Mute</td></tr>
+          <tr><td>Esc</td><td>Pause</td></tr>
+          <tr><td>N / Enter</td><td>Next track (on the finish screen)</td></tr>
+        </table>
+        <p class="sub">Gamepads work too: left stick steers, right trigger (or A) accelerates, left trigger (or B) brakes. Start pauses, Y restarts, Back resets the car, RB changes camera.</p>
+        <p class="sub">The racing line on the road shows where to go: <b class="g">green</b> flat out, <b class="y">yellow</b> turning, <b class="r">red</b> brake.</p>
+      </div>
+    </div>
+
+    <!-- pause -->
+    <div id="pause" class="screen hidden">
+      <div class="panel small">
+        <h2>Paused</h2>
+        <button id="btnResume" class="primary">Resume</button>
+        <button id="btnRestart">Restart</button>
+        <button id="btnPauseSettings">Settings</button>
+        <button id="btnPauseMenu">Main menu</button>
+      </div>
+    </div>
+
+    <!-- finish -->
+    <div id="finish" class="screen hidden">
+      <div class="panel finish">
+        <div id="finTitle" class="fintitle">FINISHED</div>
+        <div id="finMedal"></div>
+        <div id="finTime" class="mono big"></div>
+        <div id="finNote" class="sub"></div>
+        <div id="finLaps"></div>
+        <div id="finUnlock"></div>
+        <div id="finOnline" class="sub"></div>
+        <div class="row">
+          <button id="btnRetry">Retry <kbd>R</kbd></button>
+          <button id="btnNext" class="primary">Next track <kbd>N</kbd></button>
+          <button id="btnFinMenu">Menu <kbd>Esc</kbd></button>
+        </div>
+      </div>
+    </div>
+
+    <div id="touch" class="hidden">
+      <div class="panel small"><h2>Play on a PC</h2><p>Redline needs a keyboard (or a gamepad). Open this page on a computer to race.</p></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
