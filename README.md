@@ -4,7 +4,7 @@ A time trial racing game for the browser. Pick a circuit, find the racing line, 
 
 **Play:** https://gorzawebk.github.io/Redline/
 
-PC only (keyboard or gamepad). Phones and tablets with only a touchscreen see a short "play on a PC" notice. Everything is made in code: the cars, circuits, scenery, textures, sky, sound effects and music. There are no image or audio files.
+Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, best held sideways). Everything is made in code: the cars, circuits, scenery, textures, sky, sound effects and music. There are no image or audio files.
 
 > "Redline" is a working title.
 
@@ -25,6 +25,8 @@ PC only (keyboard or gamepad). Phones and tablets with only a touchscreen see a 
 | Esc | Pause |
 | N / Enter | Next track (on the finish screen) |
 | P | Watch the replay (on the finish screen) |
+
+**Touch (phones and tablets):** ◀ ▶ on the left steer, or tilt the phone (Settings → Touch steering, with an invert option). GAS and BRAKE are on the right, and DRIFT is the handbrake. RESET puts the car back on the track, CAM changes the camera and II pauses. Settings can make the car accelerate by itself. Races go fullscreen in landscape where the browser allows it, and holding the phone upright pauses the race with a reminder to turn it sideways. Phones start on Low graphics with the mirror off; both can be changed in Settings.
 
 **Gamepad:** left stick steers, right trigger (or A) accelerates, left trigger (or B) brakes, X is the handbrake. Start pauses, Y restarts, Back resets the car, RB changes camera.
 

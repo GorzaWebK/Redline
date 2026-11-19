@@ -1,10 +1,26 @@
-// Keyboard and gamepad. Steering on a keyboard is all-or-nothing; the car eases
-// the wheels in itself (see car.js). A gamepad gives analogue steering and pedals.
+// Keyboard, gamepad and touch. Steering on a keyboard (or the touch buttons) is
+// all-or-nothing; the car eases the wheels in itself (see car.js). A gamepad
+// gives analogue steering and pedals; on a phone you can also steer by tilting.
 export class Input {
   constructor() {
     this.keys = new Set();
     this.handlers = {}; // key(code)
     this.padPrev = [];
+    // on-screen touch buttons
+    this.touch = { left: false, right: false, gas: false, brake: false, drift: false };
+    this.touchUsed = false;
+    this.autoGas = false; // touch: accelerate unless braking
+    // tilt steering
+    this.tiltOn = false;
+    this.tiltInvert = false;
+    this.tiltRaw = 0;
+    this.tiltCentre = 0;
+    window.addEventListener('deviceorientation', (e) => {
+      if (e.beta == null) return;
+      const ang = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0;
+      // landscape: tilting the phone like a steering wheel changes beta
+      this.tiltRaw = ang === 90 ? e.beta : ang === 270 || ang === -90 ? -e.beta : e.gamma;
+    });
     window.addEventListener('keydown', (e) => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
       if (e.repeat) return;
@@ -21,13 +37,30 @@ export class Input {
     return null;
   }
 
+  /** A touch button: held while a finger is on it (several fingers at once work). */
+  bindTouch(el, key) {
+    const down = (e) => { e.preventDefault(); this.touch[key] = true; this.touchUsed = true; el.classList.add('on'); try { el.setPointerCapture(e.pointerId); } catch { /* fine */ } };
+    const up = () => { this.touch[key] = false; el.classList.remove('on'); };
+    el.addEventListener('pointerdown', down);
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(ev, up);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /** Make the current tilt "straight ahead". */
+  centreTilt() { this.tiltCentre = this.tiltRaw; }
+
   /** Current controls: { throttle 0..1, brake 0..1, steer -1..1 (+ right), handbrake }. */
   read() {
-    const k = this.keys;
-    let throttle = k.has('KeyW') || k.has('ArrowUp') ? 1 : 0;
-    let brake = k.has('KeyS') || k.has('ArrowDown') ? 1 : 0;
-    let handbrake = k.has('Space');
-    let steer = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
+    const k = this.keys, T = this.touch;
+    let throttle = k.has('KeyW') || k.has('ArrowUp') || T.gas ? 1 : 0;
+    let brake = k.has('KeyS') || k.has('ArrowDown') || T.brake ? 1 : 0;
+    let handbrake = k.has('Space') || T.drift;
+    let steer = (k.has('KeyD') || k.has('ArrowRight') || T.right ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') || T.left ? 1 : 0);
+    if (this.touchUsed && this.autoGas && !brake) throttle = 1;
+    if (this.tiltOn && !T.left && !T.right) {
+      const v = (this.tiltRaw - this.tiltCentre) / 22;
+      steer = Math.max(-1, Math.min(1, Math.abs(v) < 0.06 ? 0 : v)) * (this.tiltInvert ? -1 : 1);
+    }
     const p = this.pad();
     if (p) {
       const ax = p.axes[0] || 0;
@@ -49,6 +82,15 @@ export class Input {
       if (act.playEffect) act.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, strength), weakMagnitude: Math.min(1, strength * 0.6) });
       else if (act.pulse) act.pulse(Math.min(1, strength), ms);
     } catch { /* not supported */ }
+  }
+
+  /** Tilt steering on iPhones needs permission (asked from a tap). Resolves true if allowed. */
+  async askTilt() {
+    const D = window.DeviceOrientationEvent;
+    if (D && typeof D.requestPermission === 'function') {
+      try { return (await D.requestPermission()) === 'granted'; } catch { return false; }
+    }
+    return !!D;
   }
 
   /** Gamepad buttons pressed since last frame, mapped to keys: Start = Escape, Y = R, Back = C, RB = V. (X is the handbrake.) */

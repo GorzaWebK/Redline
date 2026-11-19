@@ -154,11 +154,11 @@ input[type=range] { accent-color: var(--red); }
 #finUnlock { color: var(--gold); font-weight: 600; min-height: 20px; margin-bottom: 14px; font-size: 15px; }
 .row { display: flex; gap: 8px; }
 
-#touch { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 10; }
 
 @media (max-width: 900px) {
   .cards { grid-template-columns: repeat(3, 1fr); }
-  #menu, #garage { padding-left: 16px; justify-content: center; }
+  #menu { padding-left: 16px; justify-content: center; }
+  #garage { padding-left: 12px; }
 }
 
 .foot2 { margin: 10px 0 0; font-size: 13px; }
@@ -273,3 +273,164 @@ button.daily .ds { font: 500 12px system-ui; letter-spacing: 0; text-transform: 
 #photoHud { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(0,0,0,0.45); padding: 8px 16px; border-radius: 8px; }
 .tvlabel { position: fixed; top: 18px; left: 22px; font: 800 18px var(--cond); letter-spacing: 2px; background: var(--red); padding: 3px 10px; border-radius: 4px; }
 @media (max-width: 900px) { .cuplist { grid-template-columns: repeat(2, 1fr); } }
+
+/* ---------- phones and tablets ---------- */
+html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+#game { touch-action: none; }
+.touchonly { display: none !important; }
+body.touch .touchonly { display: flex !important; }
+body.touch .keyonly, body.touch kbd, body.touch #hint { display: none !important; }
+.tbtns { display: none; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+body.touch .tbtns { display: flex; }
+.tbtns button { width: auto; padding: 9px 12px; font-size: 14px; }
+
+#touchUI { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
+#touchUI .tb { position: absolute; pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+  width: auto; padding: 0; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(14, 16, 22, 0.42); border: 2px solid rgba(255, 255, 255, 0.35); color: #fff; font: 800 18px var(--cond); letter-spacing: 1px; font-style: italic;
+  transition: none; backdrop-filter: blur(2px); }
+#touchUI .tb.on { background: rgba(255, 255, 255, 0.32); border-color: #fff; transform: scale(0.95); }
+#touchUI .steer { width: 92px; height: 92px; bottom: calc(22px + env(safe-area-inset-bottom)); font-size: 34px; font-style: normal; }
+#tLeft { left: calc(18px + env(safe-area-inset-left)); }
+#tRight { left: calc(124px + env(safe-area-inset-left)); }
+#touchUI .pedal { width: 82px; height: 82px; }
+#tGas { right: calc(18px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); width: 104px; height: 104px; font-size: 22px; background: rgba(61, 220, 132, 0.3); border-color: rgba(61, 220, 132, 0.8); }
+#tBrake { right: calc(134px + env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); background: rgba(232, 50, 42, 0.3); border-color: rgba(255, 90, 78, 0.8); }
+#tDrift { right: calc(118px + env(safe-area-inset-right)); bottom: calc(112px + env(safe-area-inset-bottom)); width: 68px; height: 68px; font-size: 15px; background: rgba(255, 207, 51, 0.24); border-color: rgba(255, 207, 51, 0.8); }
+#touchUI .ttop { position: absolute; top: calc(10px + env(safe-area-inset-top)); right: calc(150px + env(safe-area-inset-right)); display: flex; gap: 8px; }
+#touchUI .tb.small { position: static; width: 52px; height: 40px; border-radius: 10px; font-size: 14px; font-style: normal; }
+#rotate { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(13, 15, 20, 0.94); text-align: center; }
+#rotate .rot { font-size: 46px; }
+
+/* the HUD moves out of the thumbs' way on touch screens */
+body.touch .hud-br { right: 50%; transform: translateX(50%); bottom: calc(14px + env(safe-area-inset-bottom)); text-align: center; }
+body.touch .speedrow, body.touch .gearrow { justify-content: center; }
+body.touch #minimap { width: 120px; height: 120px; top: calc(10px + env(safe-area-inset-top)); right: calc(14px + env(safe-area-inset-right)); }
+body.touch .hud-tl { left: calc(16px + env(safe-area-inset-left)); top: calc(12px + env(safe-area-inset-top)); }
+body.touch #driftBox { bottom: 150px; }
+body.touch #driftTotal { top: 150px; }
+
+/* small screens (phones in landscape, small laptops) */
+@media (max-height: 560px) {
+  .panel { padding: 14px 18px; max-height: calc(100vh - 20px); }
+  .screen { padding: 10px; }
+  .logo { font-size: 50px; }
+  .tag { display: none; }
+  .nextline { padding: 6px 0; margin-bottom: 8px; font-size: 14px; }
+  button { padding: 8px 10px; font-size: 15px; }
+  button.primary { font-size: 20px; padding: 9px; }
+  button.mode-race, button.mode-cup { font-size: 16px; }
+  button.daily .dt { font-size: 16px; }
+  .grid3, .grid2 { gap: 6px; margin-top: 6px; }
+  .foot { margin-top: 8px; font-size: 13px; }
+  .foot2 { margin-top: 4px; }
+  h2 { font-size: 26px; }
+  .head { margin-bottom: 8px; }
+  .cards { grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .card { min-height: 74px; padding: 7px 8px; }
+  .card .num { font-size: 20px; }
+  .card .nm { font-size: 14px; }
+  .card .meta { display: none; }
+  .theme-block { margin-bottom: 10px; }
+  .theme-head h3 { font-size: 19px; }
+  .rows label { padding: 5px 0; font-size: 14px; }
+  .cup { min-height: 120px; padding: 10px; }
+  .cup .cn { font-size: 19px; }
+  .fintitle { font-size: 22px; }
+  .big { font-size: 40px; }
+  .medalbig { width: 56px; height: 56px; font-size: 14px; }
+  #finLaps { font-size: 15px; gap: 10px; }
+  .sttable .r { padding: 3px 4px; font-size: 13px; }
+  .sttable .r .t { font-size: 14px; }
+  #timer { font-size: 32px; }
+  #target { font-size: 13px; }
+  #delta { font-size: 20px; }
+  .lapline { font-size: 15px; }
+  .lapline b { font-size: 26px; }
+  .lapline span { font-size: 15px; }
+  #lapTime { font-size: 19px; }
+  #bestLap, #lapList { font-size: 12px; }
+  .posline { font-size: 15px; }
+  .posline b { font-size: 32px; }
+  .posline span { font-size: 15px; }
+  #speed { font-size: 46px; }
+  #unit { font-size: 13px; }
+  #gear { font-size: 20px; width: 26px; height: 28px; }
+  .rpm { width: 130px; height: 7px; }
+  #rpmFill { background-size: 130px 100%; }
+  #countdown { font-size: 90px; }
+  #toast { font-size: 20px; top: 20%; }
+  #wrongway { font-size: 34px; }
+  #driftPts { font-size: 34px; }
+  #driftMult { font-size: 14px; }
+  #hintBig { font-size: 20px; top: 52%; }
+  #hintBig.tip { font-size: 14px; }
+  #launchTip { font-size: 14px; top: 40%; }
+  #achPop { top: auto; bottom: 16px; right: 16px; width: 250px; padding: 7px 10px; }
+  #achName { font-size: 17px; }
+  #minimap { width: 130px; height: 130px; }
+  .ntag { font-size: 11px; }
+  #replayHud { bottom: 10px; padding: 6px 12px; }
+  #rpTime { font-size: 20px; }
+  .carpick .stats { display: none; }
+  .acctcode { font-size: 22px; padding: 8px; }
+  .keys td { padding: 4px; font-size: 13px; }
+  #touchUI .steer { width: 78px; height: 78px; }
+  #tRight { left: calc(106px + env(safe-area-inset-left)); }
+  #tGas { width: 90px; height: 90px; }
+  #tBrake { right: calc(116px + env(safe-area-inset-right)); width: 72px; height: 72px; }
+  #tDrift { right: calc(100px + env(safe-area-inset-right)); bottom: calc(96px + env(safe-area-inset-bottom)); width: 60px; height: 60px; }
+}
+/* narrow screens (phones held upright, in the menus) */
+@media (max-width: 600px) {
+  #menu, #garage { padding: 10px; justify-content: center; }
+  .panel { padding: 16px; }
+  .logo { font-size: 56px; }
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .cuplist { grid-template-columns: 1fr; }
+  .grid3 { grid-template-columns: repeat(2, 1fr); }
+  #paintList { grid-template-columns: 1fr; }
+  .rows select, .rows input[type=range] { width: 130px; }
+  .namerow input, #finName, #acctInput { width: 150px; }
+  .boardlist .r .l { display: none; }
+  .boardlist .r { grid-template-columns: 30px 1fr auto; }
+}
+/* very short screens (phones in landscape) */
+@media (max-height: 430px) {
+  .panel.main { padding: 10px 16px; }
+  .logo { font-size: 38px; }
+  .nextline { padding: 3px 0; margin-bottom: 6px; font-size: 13px; }
+  #nextBest { font-size: 14px; }
+  button { padding: 6px 8px; font-size: 14px; }
+  button.primary { font-size: 18px; padding: 7px; }
+  button.daily { padding: 5px 8px; }
+  button.daily .ds { font-size: 11px; }
+  .grid3, .grid2 { gap: 5px; margin-top: 5px; }
+  button.daily { margin-top: 5px; }
+  .foot { margin-top: 6px; font-size: 12px; }
+  .foot2 { display: none; }
+}
+
+/* finish panel: the buttons stay in view while the rest scrolls */
+.panel.finish .row { position: sticky; bottom: -1px; background: linear-gradient(transparent, rgba(14,16,22,0.96) 28%); padding-top: 12px; margin-top: 4px; }
+@media (max-height: 560px) {
+  .panel.finish { width: min(560px, 100%); }
+  #finNote { margin: 2px 0 6px; font-size: 13px; }
+  #finSectors { font-size: 12px; }
+  #finUnlock { margin-bottom: 6px; font-size: 13px; }
+  #finOnline { margin: 0 0 6px; }
+  #finDrift { font-size: 12px; }
+  #finTable { columns: 2; column-gap: 14px; }
+  #finTable .r { break-inside: avoid; }
+  .panel.finish .row button { padding: 8px 6px; font-size: 14px; }
+  .panel.finish .row button.primary { font-size: 16px; }
+  #achPop { top: 10px; bottom: auto; right: 10px; width: 230px; }
+}
+@media (max-height: 430px) {
+  .panel.side { width: min(340px, 46vw); }
+  #garage .panel { padding: 10px 14px; }
+  .carpick { padding: 6px 10px; }
+  .carpick .cn { font-size: 16px; }
+  .carpick .cb { font-size: 12px; }
+  .gh { margin: 8px 0 4px; font-size: 16px; }
+}

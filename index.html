@@ -2,9 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0f14" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Redline</title>
-    <meta name="description" content="Redline: a time trial racing game in your browser. 24 circuits, medals and ghost cars." />
+    <meta name="description" content="Redline: a racing game in your browser, on PC or phone. 24 circuits, four cars, AI rivals, drifting, medals and ghost cars." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2314161c'/%3E%3Cpath d='M10 44 A24 24 0 0 1 54 44' stroke='%23fff' stroke-width='5' fill='none'/%3E%3Cpath d='M32 44 L48 22' stroke='%23e8322a' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E" />
   </head>
   <body>
@@ -30,7 +34,7 @@
         <div class="gearrow"><div id="gear">1</div><div class="rpm"><div id="rpmZone" class="hidden"></div><div id="rpmFill"></div></div></div>
       </div>
       <div id="countdown"></div>
-      <div id="launchTip" class="hidden">Tap <b>W</b> to hold the revs in the <span class="g">green zone</span> for a perfect start</div>
+      <div id="launchTip" class="hidden">Tap <b id="ltKey">W</b> to hold the revs in the <span class="g">green zone</span> for a perfect start</div>
       <div id="driftBox" class="hidden"><div id="driftPts" class="mono">0</div><div id="driftMult">DRIFT</div></div>
       <div id="driftTotal" class="sub hidden"></div>
       <div id="hintBig" class="hidden"></div>
@@ -152,6 +156,10 @@
           <label>Rear-view mirror <select id="setMirror"><option value="races">In races</option><option value="always">Always</option><option value="off">Off</option></select></label>
           <label>Driving hints (first circuits) <input id="setHints" type="checkbox" /></label>
           <label>Gamepad vibration <input id="setRumble" type="checkbox" /></label>
+          <label class="touchonly">Touch steering <select id="setSteer"><option value="buttons">Buttons</option><option value="tilt">Tilt the phone</option></select></label>
+          <label class="touchonly">Invert tilt <input id="setTiltInv" type="checkbox" /></label>
+          <label class="touchonly">Accelerate automatically <input id="setAutoGas" type="checkbox" /></label>
+          <label class="touchonly">Fullscreen in races <input id="setFull" type="checkbox" /></label>
           <label>Ghost car <select id="setGhost"><option value="best">Your best</option><option value="record">World record</option><option value="both">Both</option><option value="off">Off</option></select></label>
           <label>Camera shake <input id="setShake" type="checkbox" /></label>
           <label>Effects volume <input id="setSfx" type="range" min="0" max="1" step="0.05" /></label>
@@ -181,6 +189,7 @@
           <tr><td>N / Enter</td><td>Next track (on the finish screen)</td></tr>
           <tr><td>P</td><td>Watch the replay (on the finish screen)</td></tr>
         </table>
+        <p class="sub"><b>On a phone or tablet:</b> ◀ ▶ on the left steer (or tilt the phone: Settings → Touch steering), GAS and BRAKE on the right, DRIFT is the handbrake. RESET puts the car back on the track, CAM changes the camera and II pauses. Hold BRAKE when stopped to reverse. Settings can also make the car accelerate by itself.</p>
         <p class="sub">Gamepads work too: left stick steers, right trigger (or A) accelerates, left trigger (or B) brakes, X is the handbrake. Start pauses, Y restarts, Back resets the car, RB changes camera.</p>
         <p class="sub"><b>Drifting:</b> flick the handbrake into a corner, then stay on the throttle and keep steering into the corner. The car holds the drift while you steer into it. Let go of the steering, countersteer or lift off to straighten up.</p>
         <p class="sub">The racing line on the road shows where to go: <b class="cg">green</b> flat out, <b class="cy">yellow</b> turning, <b class="cr">red</b> brake.</p>
@@ -225,15 +234,33 @@
     <div id="replayHud" class="hidden">
       <div id="rpTitle"></div>
       <div id="rpTime" class="mono"></div>
-      <div class="sub">Space pause · ← → skip 5 s · 1 2 3 speed · C camera · Esc back</div>
+      <div class="sub keyonly">Space pause · ← → skip 5 s · 1 2 3 speed · C camera · Esc back</div>
+      <div class="tbtns">
+        <button id="rpBack">Back</button><button id="rpPrev">−5 s</button><button id="rpPlay">Pause</button><button id="rpNext">+5 s</button><button id="rpSpeed">1x</button><button id="rpCam">Camera</button>
+      </div>
     </div>
     <div id="photoHud" class="hidden">
-      <div class="sub">PHOTO MODE · drag or WASD to move · Q E up/down · mouse wheel zoom · <b>Enter</b> save picture · Esc back</div>
+      <div class="sub keyonly">PHOTO MODE · drag or WASD to move · Q E up/down · mouse wheel zoom · <b>Enter</b> save picture · Esc back</div>
+      <div class="sub touchonly">PHOTO MODE · drag to turn the camera</div>
+      <div class="tbtns">
+        <button id="phIn">Zoom in</button><button id="phOut">Zoom out</button><button id="phUp">Up</button><button id="phDown">Down</button><button id="phSave" class="primary">Save picture</button><button id="phBack">Back</button>
+      </div>
     </div>
 
-    <div id="touch" class="hidden">
-      <div class="panel small"><h2>Play on a PC</h2><p>Redline needs a keyboard (or a gamepad). Open this page on a computer to race.</p></div>
+    <!-- touch controls (phones and tablets) -->
+    <div id="touchUI" class="hidden">
+      <button id="tLeft" class="tb steer" aria-label="Steer left">◀</button>
+      <button id="tRight" class="tb steer" aria-label="Steer right">▶</button>
+      <button id="tBrake" class="tb pedal brake">BRAKE</button>
+      <button id="tDrift" class="tb pedal drift">DRIFT</button>
+      <button id="tGas" class="tb pedal gas">GAS</button>
+      <div class="ttop">
+        <button id="tCam" class="tb small" aria-label="Change camera">CAM</button>
+        <button id="tReset" class="tb small" aria-label="Reset car">RESET</button>
+        <button id="tPause" class="tb small" aria-label="Pause">II</button>
+      </div>
     </div>
+    <div id="rotate" class="hidden"><div class="panel small"><div class="rot">📱↻</div><h2>Turn sideways</h2><p class="sub">Redline races in landscape. Turn your phone on its side to carry on.</p></div></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -37,15 +37,17 @@ const params = new URLSearchParams(location.search);
 const BOT = params.has('bot');
 const UNLOCK_ALL = params.get('unlock') === 'all';
 
-// phones and tablets with only a touchscreen
-if (matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches) {
-  $('touch').classList.remove('hidden');
-  $('menu').classList.add('hidden');
-  throw new Error('touch-only device');
-}
+// phones and tablets: touch controls, lighter graphics by default
+const TOUCH = params.has('touch') || matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(any-pointer: fine)').matches);
+document.body.classList.toggle('touch', TOUCH);
 
 const save = loadSave();
 const settings = save.settings;
+if (TOUCH && !settings.touchInit) {
+  settings.quality = 'low';
+  settings.mirror = 'off';
+  settings.touchInit = true;
+}
 let cloudTimer = 0;
 function persist() {
   storeSave(save);
@@ -80,6 +82,32 @@ addEventListener('resize', () => {
 });
 
 const input = new Input();
+input.autoGas = settings.autoGas;
+input.tiltOn = settings.steer === 'tilt';
+input.tiltInvert = settings.tiltInvert;
+// touch buttons
+for (const [id, key] of [['tLeft', 'left'], ['tRight', 'right'], ['tGas', 'gas'], ['tBrake', 'brake'], ['tDrift', 'drift']]) input.bindTouch($(id), key);
+for (const [id, fn] of [['tPause', () => { if (mode === 'race' && !watching) pause(); else if (watching) exitToMenu(); }], ['tReset', () => { if (mode === 'race' && !watching) race.recover(); }], ['tCam', () => input.handlers.key('KeyV')]]) {
+  $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); sound.init(); fn(); });
+}
+if (TOUCH) $('ltKey').textContent = 'GAS';
+
+/** Fullscreen and landscape for races on a phone (where the browser allows it). */
+function goFullscreen() {
+  if (!TOUCH || !settings.fullscreen || document.fullscreenElement) return;
+  const el = document.documentElement;
+  const p = el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen?.();
+  Promise.resolve(p).then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
+}
+/** Phones held upright: ask to turn sideways (and pause a race). */
+function checkOrientation() {
+  const upright = TOUCH && innerHeight > innerWidth * 1.05;
+  const racing = mode === 'race' || mode === 'paused' || mode === 'replay' || mode === 'photo' || mode === 'finished';
+  $('rotate').classList.toggle('hidden', !(upright && racing));
+  if (upright && mode === 'race' && !watching && race && race.state !== 'finished') pause();
+}
+addEventListener('resize', checkOrientation);
+addEventListener('orientationchange', () => setTimeout(checkOrientation, 200));
 const sound = new Sound();
 sound.setEffectsVolume(settings.sfx);
 sound.setMusicVolume(settings.music);
@@ -315,6 +343,8 @@ function buildRivalModels() {
 function startRace(tr, { watch = false, kind = 'trial' } = {}) {
   if (!tr || !unlocked(tr)) return;
   sound.init();
+  goFullscreen();
+  input.centreTilt();
   sess = { kind, tr };
   loadTrack(tr);
   watching = (watch || BOT) && kind === 'trial';
@@ -585,6 +615,7 @@ function clearRaceView() {
 }
 function exitToMenu() {
   mode = 'menu';
+  $('rotate').classList.add('hidden');
   race = null;
   clearRaceView();
   sound.silence();
@@ -923,6 +954,10 @@ function loadSettingsUI() {
   $('setMirror').value = settings.mirror;
   $('setHints').checked = settings.hints;
   $('setRumble').checked = settings.rumble;
+  $('setSteer').value = settings.steer;
+  $('setTiltInv').checked = settings.tiltInvert;
+  $('setAutoGas').checked = settings.autoGas;
+  $('setFull').checked = settings.fullscreen;
 }
 function bindSetting(id, key, kind, after) {
   $(id).addEventListener(kind === 'check' ? 'change' : 'input', (e) => {
@@ -948,6 +983,17 @@ bindSetting('setAi', 'aiLevel', 'select');
 bindSetting('setMirror', 'mirror', 'select');
 bindSetting('setHints', 'hints', 'check');
 bindSetting('setRumble', 'rumble', 'check');
+bindSetting('setSteer', 'steer', 'select', () => {
+  if (settings.steer === 'tilt') {
+    input.askTilt().then((ok) => {
+      if (!ok) { settings.steer = 'buttons'; $('setSteer').value = 'buttons'; persist(); }
+      input.tiltOn = settings.steer === 'tilt';
+    });
+  } else input.tiltOn = false;
+});
+bindSetting('setTiltInv', 'tiltInvert', 'check', () => { input.tiltInvert = settings.tiltInvert; });
+bindSetting('setAutoGas', 'autoGas', 'check', () => { input.autoGas = settings.autoGas; });
+bindSetting('setFull', 'fullscreen', 'check');
 
 // buttons
 const click = (id, fn) => $(id).addEventListener('click', () => { sound.init(); sound.click(); fn(); });
@@ -984,6 +1030,8 @@ function pause() {
 }
 function resume() {
   if (mode !== 'paused') return;
+  if (TOUCH && innerHeight > innerWidth * 1.05) { checkOrientation(); return; }
+  input.centreTilt();
   mode = 'race';
   acc = 0;
   showScreen(null);
@@ -1000,6 +1048,7 @@ function startReplay(tr, frames, title, back) {
   clearRaceView();
   $('replayHud').classList.remove('hidden');
   $('rpTitle').textContent = title;
+  $('rpPlay').textContent = 'Pause'; $('rpSpeed').textContent = '1x';
   sound.silence();
 }
 function endReplay() {
@@ -1075,15 +1124,29 @@ function savePhoto() {
   award('photo');
   sound.tone({ type: 'square', freq: 1800, dur: 0.05, gain: 0.08 });
 }
-canvas.addEventListener('mousedown', (e) => { if (photo) photo.drag = { x: e.clientX, y: e.clientY }; });
-addEventListener('mouseup', () => { if (photo) photo.drag = null; });
-addEventListener('mousemove', (e) => {
+canvas.addEventListener('pointerdown', (e) => { if (photo) photo.drag = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerup', () => { if (photo) photo.drag = null; });
+addEventListener('pointermove', (e) => {
   if (!photo || !photo.drag) return;
   photo.yaw += (e.clientX - photo.drag.x) * 0.006;
   photo.pitch = Math.max(-0.2, Math.min(1.4, photo.pitch + (e.clientY - photo.drag.y) * 0.005));
   photo.drag = { x: e.clientX, y: e.clientY };
 });
 canvas.addEventListener('wheel', (e) => { if (photo) photo.dist = Math.max(2, Math.min(40, photo.dist * (e.deltaY > 0 ? 1.1 : 0.9))); }, { passive: true });
+// photo mode and replay buttons (touch screens)
+const tapBtn = (id, fn) => $(id).addEventListener('click', () => { sound.init(); fn(); });
+tapBtn('phIn', () => { if (photo) photo.dist = Math.max(2, photo.dist * 0.8); });
+tapBtn('phOut', () => { if (photo) photo.dist = Math.min(40, photo.dist * 1.25); });
+tapBtn('phUp', () => { if (photo) photo.ty += 0.8; });
+tapBtn('phDown', () => { if (photo) photo.ty -= 0.8; });
+tapBtn('phSave', () => { if (photo) savePhoto(); });
+tapBtn('phBack', () => { if (photo) endPhoto(); });
+tapBtn('rpBack', () => { if (rp) endReplay(); });
+tapBtn('rpPrev', () => { if (rp) input.handlers.key('ArrowLeft'); });
+tapBtn('rpNext', () => { if (rp) input.handlers.key('ArrowRight'); });
+tapBtn('rpPlay', () => { if (rp) { rp.paused = !rp.paused; $('rpPlay').textContent = rp.paused ? 'Play' : 'Pause'; } });
+tapBtn('rpSpeed', () => { if (rp) { rp.speed = rp.speed === 1 ? 2 : rp.speed === 2 ? 0.5 : 1; $('rpSpeed').textContent = `${rp.speed}x`; } });
+tapBtn('rpCam', () => { if (rp) rp.camMode = rp.camMode === 'tv' ? 'chase' : 'tv'; });
 
 // ---------- keys ----------
 const CAMERAS = ['chase', 'far', 'hood', 'bumper'];
@@ -1353,6 +1416,7 @@ function frame(now) {
   }
   $('fps').classList.toggle('hidden', !settings.fps || mode === 'menu');
   renderer.render(scene, camera);
+  $('touchUI').classList.toggle('hidden', !(TOUCH && mode === 'race' && !watching));
   const mir = mode === 'race' && pose && mirrorOn();
   if (mir) renderMirror(pose);
   $('mirrorFrame').classList.toggle('hidden', !mir);
@@ -1439,7 +1503,7 @@ window.__redline = {
   scene, camera, save, settings, TRACKS,
   get race() { return race; }, get mode() { return mode; }, get recordInfo() { return recordInfo; }, get recordGhost() { return recordGhost; },
   get drift() { return drift; }, get sess() { return sess; }, get rp() { return rp; }, get cur() { return cur; },
-  startRace, startCup, todaysDaily, award,
+  startRace, startCup, todaysDaily, award, inputRead: () => input.read(),
   /** Run the physics ahead by `sec` seconds (the autopilot drives if it's on). */
   fastForward(sec, auto = true) {
     const driver = bot || (auto ? new Bot(cur.track, 0.9, carDef.spec) : null);

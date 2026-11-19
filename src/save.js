@@ -18,6 +18,11 @@ export const DEFAULT_SETTINGS = {
   mirror: 'races', // races, always, off
   hints: true,
   rumble: true,
+  steer: 'buttons', // touch: buttons or tilt
+  tiltInvert: false,
+  autoGas: false, // touch: accelerate unless braking
+  fullscreen: true, // touch: go fullscreen (landscape) for races
+  touchInit: false, // phone-friendly defaults applied
 };
 
 function read(key, fallback) {
