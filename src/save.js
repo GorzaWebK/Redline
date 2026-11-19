@@ -14,6 +14,10 @@ export const DEFAULT_SETTINGS = {
   music: 0.5,
   mute: false,
   fps: false,
+  aiLevel: 'normal', // easy, normal, hard
+  mirror: 'races', // races, always, off
+  hints: true,
+  rumble: true,
 };
 
 function read(key, fallback) {
@@ -33,8 +37,19 @@ export function loadSave() {
     bestLap: s.bestLap || {}, // track id -> best single lap
     unlocked: Math.max(1, s.unlocked || 1),
     paint: s.paint || 'red',
+    car: s.car || 'gt',
     settings,
     stats: { races: 0, distance: 0, time: 0, laps: 0, ...(s.stats || {}) },
+    bestSectors: s.bestSectors || {}, // track id -> [sector 1, 2, 3] fastest ever
+    raceBest: s.raceBest || {}, // track id -> best finishing position against the AI
+    achievements: s.achievements || {}, // id -> date earned
+    trophies: s.trophies || {}, // theme -> best championship finish (1 = won)
+    cup: s.cup || null, // championship in progress
+    daily: s.daily || {}, // { last, streak, best }
+    dailyCache: s.dailyCache || {}, // day -> { seed, gold }
+    account: s.account || null, // { code, pid }
+    profileAt: s.profileAt || 0,
+    last: s.last,
   };
 }
 

@@ -59,6 +59,9 @@ export class GhostPlayer {
     let dh = f[b + 2] - f[a + 2];
     dh -= Math.PI * 2 * Math.round(dh / (Math.PI * 2));
     const h = f[a + 2] + dh * u;
+    // a big jump (skipping ahead in a replay): search the whole track again
+    if (this.lx === undefined || Math.hypot(x - this.lx, z - this.lz) > 30) this.hint = -1;
+    this.lx = x; this.lz = z;
     locate(this.track, x, z, this.hint, this.loc);
     this.hint = this.loc.i;
     const speed = Math.hypot(f[b] - f[a], f[b + 1] - f[a + 1]) * GHOST_HZ;

@@ -7,7 +7,7 @@ import { writeFileSync } from 'node:fs';
 import { generateTrack } from '../src/track.js';
 import { Bot } from '../src/bot.js';
 import { simulate } from '../src/race.js';
-import { TRACK_COUNT, diffOf } from '../src/tracks.js';
+import { TRACK_COUNT, diffOf, WET_TRACKS } from '../src/tracks.js';
 import { hashString } from '../src/rng.js';
 import { SEEDS } from '../src/track-seeds.js';
 
@@ -20,6 +20,7 @@ for (let k = 0; k < TRACK_COUNT; k++) {
   for (;; seed = tries === 0 && keep ? hashString(`redline-${k}`) % 1000000 : seed + 1, tries++) {
     const t = generateTrack(seed, diff);
     if (!t) continue;
+    t.wet = WET_TRACKS.has(k + 1); // rainy circuits: the gold time is set in the wet
     // keep lap lengths in a sensible band for the difficulty
     const want = 900 + diff * 900;
     if (Math.abs(t.L - want) > 250) continue;

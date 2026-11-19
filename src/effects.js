@@ -60,6 +60,36 @@ export class Effects {
     scene.add(this.sparkPts);
   }
 
+  /** Rain: streaks falling around the camera (on = wet track). */
+  setRain(on, night = false) {
+    if (!this.rain) {
+      const n = 1400, pos = new Float32Array(n * 6);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc8d4e4, transparent: true, opacity: 0.35 }));
+      this.rain.frustumCulled = false;
+      this.rainDrops = Array.from({ length: n }, () => ({ x: (Math.random() - 0.5) * 60, y: Math.random() * 30, z: (Math.random() - 0.5) * 60 }));
+      this.scene.add(this.rain);
+    }
+    this.rain.visible = on;
+    this.rain.material.color.setHex(night ? 0x8a96b0 : 0xc8d4e4);
+  }
+
+  /** Move the rain with the camera (call each frame while it's raining). */
+  updateRain(dt, cam) {
+    if (!this.rain || !this.rain.visible) return;
+    const pos = this.rain.geometry.attributes.position.array;
+    let k = 0;
+    for (const d of this.rainDrops) {
+      d.y -= 22 * dt;
+      if (d.y < -2) { d.y = 28 + Math.random() * 4; d.x = (Math.random() - 0.5) * 60; d.z = (Math.random() - 0.5) * 60; }
+      const x = cam.x + d.x, y = cam.y + d.y - 6, z = cam.z + d.z;
+      pos[k++] = x; pos[k++] = y; pos[k++] = z;
+      pos[k++] = x; pos[k++] = y + 0.9; pos[k++] = z;
+    }
+    this.rain.geometry.attributes.position.needsUpdate = true;
+  }
+
   setNight(night) { this.smokeMat.uniforms.color.value.setHex(night ? 0x8a8f9c : 0xdedede); }
 
   puff(x, y, z, vx, vz, strength) {

@@ -48,6 +48,19 @@ async function rulesTests() {
   check(!(await ok(db.set(db.ref(A.d, `redline/ghosts/t3/${B.uid}`), { time: 100, data: 'R1.AAAA', at: db.serverTimestamp() }))), "rules: you can't replace someone else's ghost");
   check(await ok(db.get(db.ref(anon.d, 'redline/scores/t3'))), 'rules: anyone can read a leaderboard');
   check(!(await ok(db.get(db.ref(anon.d, 'redline')))), "rules: you can't download the whole redline/ tree at once");
+  // daily boards and the car field
+  check(await ok(db.set(db.ref(A.d, `redline/scores/d20261119/${A.uid}`), entry('Alice', 100, 30, { car: 'hyper' }))), 'rules: daily boards (d20261119) accept times, with the car');
+  check(!(await ok(db.set(db.ref(A.d, `redline/scores/d20261340/${A.uid}`), entry('Alice', 100, 30)))), 'rules: not a real date');
+  check(!(await ok(db.set(db.ref(A.d, `redline/scores/t5/${A.uid}`), entry('Alice', 100, 30, { car: 'tank' })))), 'rules: only real cars');
+  // accounts: a code holds a save; another browser can join it and save times under it
+  const code = 'ABCDEFGHJKLMNPQR';
+  check(await ok(db.set(db.ref(A.d, `redline/accounts/${code}`), { pid: A.uid, save: 'RS1.{}', at: db.serverTimestamp() })), 'rules: make an account');
+  check(!(await ok(db.set(db.ref(B.d, `redline/accounts/${code}`), { pid: B.uid, save: 'RS1.{}', at: db.serverTimestamp() }))), "rules: you can't take over someone's account id");
+  check(!(await ok(db.set(db.ref(A.d, `redline/accounts/abc`), { pid: A.uid, save: 'RS1.{}', at: db.serverTimestamp() }))), 'rules: codes must look like codes');
+  check(!(await ok(db.set(db.ref(B.d, `redline/scores/t7/${A.uid}`), entry('Alice', 100, 30)))), "rules: without joining, you can't save under the account");
+  check(await ok(db.set(db.ref(B.d, `redline/members/${A.uid}/${B.uid}`), code)), 'rules: a browser with the code can join the account');
+  check(!(await ok(db.set(db.ref(B.d, `redline/members/${A.uid}/${B.uid}`), 'ZZZZZZZZZZZZZZZZ'))), 'rules: joining needs the right code');
+  check(await ok(db.set(db.ref(B.d, `redline/scores/t7/${A.uid}`), entry('Alice', 100, 30))), 'rules: after joining, it can save times under the account');
   // tidy up so the browser tests start clean (owner token clears everything)
   await fetch('http://127.0.0.1:9000/redline.json?ns=demo-redline', { method: 'DELETE', headers: { Authorization: 'Bearer owner' } });
 }
@@ -100,6 +113,31 @@ async function browserTests() {
     const info = await bob.evaluate(() => window.__redline.recordInfo && { name: window.__redline.recordInfo.name, time: window.__redline.recordInfo.time });
     check(info && info.name === 'Alice', `the world record ghost (Alice's) loads: ${JSON.stringify(info)}`);
     check(/Record/.test(await bob.textContent('#target')), 'the HUD shows the record time');
+    await bob.evaluate(() => window.__redline.fastForward(5, false)); // wait on the line: the ghost drives off ahead
+    await bob.waitForTimeout(1500);
+    const tags = await bob.$$eval('.ntag', (els) => els.filter((e) => e.style.display !== 'none').map((e) => e.textContent));
+    check(tags.some((t) => /WR\s*Alice/.test(t)), `a name tag floats over the world record ghost: ${JSON.stringify(tags)}`);
+
+    // account codes: Bob makes a code; a new browser uses it and gets Bob's progress
+    await bob.keyboard.press('Escape'); await bob.click('#btnPauseMenu');
+    await bob.click('#btnStats'); await bob.click('#profTabs button[data-tab=acctBox]');
+    await bob.click('#btnAcctMake');
+    await bob.waitForFunction(() => window.__redline.save.account, null, { timeout: 15000 }).catch(() => {});
+    const code = await bob.textContent('#acctCode');
+    check(/^[2-9A-HJ-NP-Z]{4}(-[2-9A-HJ-NP-Z]{4}){3}$/.test(code), `an account code is made (${code})`);
+    const bobBest = await bob.evaluate(() => window.__redline.save.best[1].time);
+    await bob.waitForTimeout(5000); // the account saves a few seconds after changes
+    await bob.context().close();
+    const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const carl = await ctx3.newPage();
+    await carl.goto(URL);
+    await carl.waitForFunction(() => window.__redline, null, { timeout: 60000 });
+    await carl.click('#btnStats'); await carl.click('#profTabs button[data-tab=acctBox]');
+    await carl.fill('#acctInput', code.toLowerCase());
+    await carl.click('#btnAcctUse');
+    await carl.waitForFunction(() => window.__redline.save.best[1], null, { timeout: 15000 }).catch(() => {});
+    const got = await carl.evaluate(() => ({ best: window.__redline.save.best[1] && window.__redline.save.best[1].time, name: window.__redline.save.name }));
+    check(got.best === bobBest && got.name === 'Bob', `another browser loads the account: ${JSON.stringify(got)}`);
     await browser.close();
   } finally {
     server.kill();

@@ -36,17 +36,29 @@ export const CAR = {
   reverseDelay: 0.3, // seconds stopped with the brake held before it reverses
   handbrakeGrip: 0.42, // rear grip with the handbrake on
   reverseSpeed: 11,
+  revMax: 8000, // engine revs at the top of each gear (sound and HUD)
+  // gear changes (for the engine sound and the HUD; the drive force itself is
+  // a smooth power curve): top speed in m/s of each gear
+  gears: [0, 15, 26, 37, 48, 59, 80],
 };
 CAR.wheelbase = CAR.a + CAR.b;
+export const GEARS = CAR.gears;
+export const WET_GRIP = 0.8; // grip on a wet track compared with dry
 
-// gear changes (for the engine sound and the HUD; the drive force itself is a
-// smooth power curve): top speed in m/s of each gear
-export const GEARS = [0, 15, 26, 37, 48, 59, 80];
+/** A car's physics: the GT's numbers with some replaced. */
+export function makeSpec(over = {}) {
+  const P = { ...CAR, ...over };
+  P.wheelbase = P.a + P.b;
+  return P;
+}
 
-/** A fresh car state at sample i of the track, facing along it. */
-export function makeCar(track, i = 0, back = 0) {
-  const x = track.x[i] - track.tx[i] * back, z = track.z[i] - track.tz[i] * back;
+/** A fresh car state at sample i of the track, facing along it (lat = metres to the right). */
+export function makeCar(track, i = 0, back = 0, spec = CAR, lat = 0) {
+  const x = track.x[i] - track.tx[i] * back - track.tz[i] * lat, z = track.z[i] - track.tz[i] * back + track.tx[i] * lat;
   const c = {
+    P: spec,
+    launchT: 0, launchMul: 1, // launch control boost (or bog) after the start
+    onKerb: false,
     x, z, y: track.y[i], h: Math.atan2(track.tz[i], track.tx[i]),
     u: 0, v: 0, r: 0, // forward speed, sideways speed (+ right), yaw rate
     steer: 0, // current front wheel angle
@@ -75,7 +87,7 @@ function tyre(alpha, stiff, maxF) {
  * at speed, so keyboard steering stays precise.
  */
 export function stepCar(c, track, input, dt = DT) {
-  const P = CAR;
+  const P = c.P || CAR;
   const speed = Math.hypot(c.u, c.v);
 
   // steering: target lock shrinks with speed; the wheels turn at a limited rate
@@ -88,7 +100,9 @@ export function stepCar(c, track, input, dt = DT) {
 
   const loc = c.loc;
   c.onGrass = Math.abs(loc.lat) > track.halfW + 0.4;
-  const mu = c.onGrass ? P.muGrass : P.mu;
+  const al = Math.abs(loc.lat);
+  c.onKerb = !!(track.kerb && track.kerb[loc.i]) && al > track.halfW - 0.35 && al < track.halfW + 1.0;
+  const mu = (c.onGrass ? P.muGrass : P.mu) * (track.wet ? WET_GRIP : 1);
 
   // weight on each axle, shifting with acceleration
   const W = P.mass * G;
@@ -110,6 +124,7 @@ export function stepCar(c, track, input, dt = DT) {
     if (c.u > -P.reverseSpeed) drive = -brake * P.maxDrive * 0.45;
   } else {
     drive = throttle * Math.min(P.maxDrive, P.power / Math.max(Math.abs(c.u), 1));
+    if (c.launchT > 0) { drive *= c.launchMul; c.launchT -= dt; }
     if (c.u < -0.3 && throttle > 0) { drive = 0; brakeF = throttle * P.brake * P.brakeFront; brakeR = throttle * P.brake * (1 - P.brakeFront); }
     if (brake > 0) {
       brakeF = brake * P.brake * P.brakeFront;
@@ -143,7 +158,8 @@ export function stepCar(c, track, input, dt = DT) {
   // can hold a drift
   const slideAng = c.u > 6 ? Math.abs(Math.atan2(c.v, c.u)) : 0;
   const drifting = Math.max(0, Math.min(1, (slideAng - 0.22) / 0.12)); // 0 below ~13 degrees, 1 above ~19
-  fxR = Math.max(-muR * Fr, Math.min((0.75 + 0.2 * drifting) * muR * Fr, fxR));
+  const tc = c.launchT > 0 && c.launchMul > 1 ? 0.9 : 0.75 + 0.2 * drifting; // a perfect launch uses more grip
+  fxR = Math.max(-muR * Fr, Math.min(tc * muR * Fr, fxR));
 
   // slip angles (with a floor on speed so standing still is calm)
   const ue = Math.max(Math.abs(c.u), 3);
@@ -159,6 +175,7 @@ export function stepCar(c, track, input, dt = DT) {
   c.slipF = Math.abs(alphaF) * P.cornerF / Math.max(1, mu * Ff) / 1.4;
   c.slipR = Math.abs(alphaR) * P.cornerR / Math.max(1, muR * Fr) / 1.4;
   if (fxR > 0.74 * muR * Fr && throttle > 0.5 && Math.abs(c.u) < 12) c.slipR = Math.max(c.slipR, 1.1); // wheelspin off the line
+  if (c.launchT > 0 && c.launchMul < 1 && throttle > 0) c.slipR = Math.max(c.slipR, 1.6); // a botched launch: wheelspin
 
   // resistances and slope
   let resist = -P.drag * c.u * Math.abs(c.u) - P.roll * c.u;
@@ -288,11 +305,11 @@ export function stepCar(c, track, input, dt = DT) {
   c.pitch = Math.atan(loc.grade * (Math.cos(c.h) * loc.tx + Math.sin(c.h) * loc.tz));
 
   // gear and engine revs (sound and HUD)
-  const fwd = Math.abs(c.u);
-  while (c.gear < GEARS.length - 1 && fwd > GEARS[c.gear] * 0.97) c.gear++;
-  while (c.gear > 1 && fwd < GEARS[c.gear - 1] * 0.8) c.gear--;
-  const lo = c.gear === 1 ? 0 : GEARS[c.gear - 1] * 0.7, hi = GEARS[c.gear];
-  const target2 = 1100 + Math.max(0, Math.min(1, (fwd - lo) / (hi - lo))) * 6900 + (throttle && fwd < 3 ? 1800 * throttle : 0);
+  const fwd = Math.abs(c.u), gears = P.gears;
+  while (c.gear < gears.length - 1 && fwd > gears[c.gear] * 0.97) c.gear++;
+  while (c.gear > 1 && fwd < gears[c.gear - 1] * 0.8) c.gear--;
+  const lo = c.gear === 1 ? 0 : gears[c.gear - 1] * 0.7, hi = gears[c.gear];
+  const target2 = 1100 + Math.max(0, Math.min(1, (fwd - lo) / (hi - lo))) * (P.revMax - 1100) + (throttle && fwd < 3 ? 1800 * throttle : 0);
   c.rpm += (target2 - c.rpm) * 0.25;
   return c;
 }

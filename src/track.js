@@ -84,7 +84,15 @@ export function generateTrack(seed, diff = 0.5) {
   t.seed = seed;
   t.diff = diff;
   t.line = racingLine(t);
+  t.kerb = kerbMap(t);
   return t;
+}
+
+/** Which samples have kerbs: the corners (and a little either side). */
+export function kerbMap(t) {
+  const out = new Uint8Array(t.N);
+  for (let i = 0; i < t.N; i++) if (Math.abs(t.curv[i]) > 1 / 75) for (let k = -6; k <= 6; k++) out[(i + k + t.N) % t.N] = 1;
+  return out;
 }
 
 function smooth(x, z, passes, k = 1) {

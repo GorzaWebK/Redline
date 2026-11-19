@@ -41,6 +41,16 @@ export class Input {
     return { throttle, brake, steer, handbrake };
   }
 
+  /** Vibrate the gamepad (if it can): strength 0..1, for ms. */
+  rumble(strength, ms = 120) {
+    const p = this.pad(), act = p && (p.vibrationActuator || (p.hapticActuators && p.hapticActuators[0]));
+    if (!act || strength <= 0) return;
+    try {
+      if (act.playEffect) act.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, strength), weakMagnitude: Math.min(1, strength * 0.6) });
+      else if (act.pulse) act.pulse(Math.min(1, strength), ms);
+    } catch { /* not supported */ }
+  }
+
   /** Gamepad buttons pressed since last frame, mapped to keys: Start = Escape, Y = R, Back = C, RB = V. (X is the handbrake.) */
   pollPad() {
     const p = this.pad();

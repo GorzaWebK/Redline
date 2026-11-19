@@ -13,6 +13,7 @@
     <!-- driving HUD -->
     <div id="hud" class="hidden">
       <div class="hud-tl">
+        <div id="posLine" class="posline hidden">POS <b id="posNum">6</b><span>/<span id="posTotal">6</span></span></div>
         <div class="lapline">LAP <b id="lapNum">1</b><span>/<span id="lapTotal">3</span></span></div>
         <div id="lapTime" class="mono">0:00.000</div>
         <div id="bestLap" class="sub">Best lap --</div>
@@ -26,9 +27,15 @@
       <canvas id="minimap" width="220" height="220"></canvas>
       <div class="hud-br">
         <div class="speedrow"><div id="speed" class="mono">0</div><div id="unit">KM/H</div></div>
-        <div class="gearrow"><div id="gear">1</div><div class="rpm"><div id="rpmFill"></div></div></div>
+        <div class="gearrow"><div id="gear">1</div><div class="rpm"><div id="rpmZone" class="hidden"></div><div id="rpmFill"></div></div></div>
       </div>
       <div id="countdown"></div>
+      <div id="launchTip" class="hidden">Tap <b>W</b> to hold the revs in the <span class="g">green zone</span> for a perfect start</div>
+      <div id="driftBox" class="hidden"><div id="driftPts" class="mono">0</div><div id="driftMult">DRIFT</div></div>
+      <div id="driftTotal" class="sub hidden"></div>
+      <div id="hintBig" class="hidden"></div>
+      <div id="tags"></div>
+      <div id="mirrorFrame" class="hidden"></div>
       <div id="toast"></div>
       <div id="wrongway" class="hidden">WRONG WAY</div>
       <div id="fps" class="hidden"></div>
@@ -41,12 +48,17 @@
         <h1 class="logo">RED<span>LINE</span></h1>
         <p class="tag">Time trial racing. Find the line, beat the ghost, take the gold.</p>
         <div class="nextline"><span id="nextName">Track 1</span><span id="nextBest">Best --</span></div>
-        <button id="btnPlay" class="primary">RACE</button>
+        <button id="btnPlay" class="primary">TIME TRIAL</button>
+        <div class="grid2">
+          <button id="btnRaceMode" class="mode-race">Race rivals</button>
+          <button id="btnCups" class="mode-cup">Championship</button>
+        </div>
+        <button id="btnDaily" class="daily"><span class="dt">DAILY CHALLENGE</span><span id="dailySub" class="ds"></span></button>
         <div class="grid3">
           <button id="btnTracks">Tracks</button>
           <button id="btnGarage">Garage</button>
           <button id="btnBoards">Leaderboards</button>
-          <button id="btnStats">Stats</button>
+          <button id="btnStats">Profile</button>
           <button id="btnSettings">Settings</button>
           <button id="btnControls">Controls</button>
         </div>
@@ -59,6 +71,7 @@
     <div id="tracks" class="screen hidden">
       <div class="panel wide">
         <div class="head"><h2>Tracks</h2><span id="trackTotals" class="sub"></span><button class="back">Back</button></div>
+        <div class="tabs" id="trackTabs"><button data-mode="trial" class="on">Time trial</button><button data-mode="race">Race rivals</button><span class="sub" id="aiNote"></span></div>
         <div id="trackList"></div>
       </div>
     </div>
@@ -67,7 +80,10 @@
     <div id="garage" class="screen hidden">
       <div class="panel side">
         <div class="head"><h2>Garage</h2><button class="back">Back</button></div>
-        <p class="sub">Pick a paint. More unlock as you win medals.</p>
+        <h3 class="gh">Car</h3>
+        <div id="carList"></div>
+        <h3 class="gh">Paint</h3>
+        <p class="sub">More paints unlock as you win medals.</p>
         <div id="paintList"></div>
       </div>
     </div>
@@ -80,14 +96,45 @@
         <div class="boardnav"><button id="boardPrev">‹</button><div id="boardTitle"></div><button id="boardNext">›</button></div>
         <div id="boardList" class="boardlist"></div>
         <div id="boardMe" class="sub"></div>
+        <button id="btnWatchWR" class="hidden" style="margin-top:10px">Watch the world record</button>
       </div>
     </div>
 
-    <!-- stats -->
+    <!-- championship -->
+    <div id="cups" class="screen hidden">
+      <div class="panel wide">
+        <div class="head"><h2>Championship</h2><span class="sub">Six races against the same five rivals. Points: 10, 8, 6, 4, 2, 1.</span><button class="back">Back</button></div>
+        <div id="cupList" class="cuplist"></div>
+      </div>
+    </div>
+    <div id="standings" class="screen hidden">
+      <div class="panel">
+        <div class="head"><h2 id="stTitle">Standings</h2></div>
+        <div id="stSub" class="sub"></div>
+        <div id="stTable" class="sttable"></div>
+        <div id="stTrophy"></div>
+        <div class="row" style="margin-top:14px">
+          <button id="btnCupNext" class="primary">Next race</button>
+          <button id="btnCupQuit">Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- profile: stats, achievements, account -->
     <div id="stats" class="screen hidden">
       <div class="panel">
-        <div class="head"><h2>Stats</h2><button class="back">Back</button></div>
-        <div id="statList"></div>
+        <div class="head"><h2>Profile</h2><button class="back">Back</button></div>
+        <div class="tabs" id="profTabs"><button data-tab="statList" class="on">Stats</button><button data-tab="achList">Achievements</button><button data-tab="acctBox">Account code</button></div>
+        <div id="statList" class="ptab"></div>
+        <div id="achList" class="ptab hidden"></div>
+        <div id="acctBox" class="ptab hidden">
+          <p class="sub">Your account code saves your progress online (best times, medals, unlocks, trophies, achievements, stats, name, car and paint) a few seconds after anything changes. Type it into Redline in another browser to carry on there. Keep it secret: it works like a password.</p>
+          <div id="acctCode" class="acctcode">No code yet</div>
+          <div class="row"><button id="btnAcctMake">Get my account code</button><button id="btnAcctCopy">Copy</button></div>
+          <label class="namerow">Use a code from another computer <input id="acctInput" maxlength="19" spellcheck="false" placeholder="ABCD-EFGH-JKLM-NPQR" /></label>
+          <button id="btnAcctUse">Use this code</button>
+          <div id="acctMsg" class="sub"></div>
+        </div>
       </div>
     </div>
 
@@ -101,6 +148,10 @@
           <label>Speed units <select id="setUnits"><option value="kmh">km/h</option><option value="mph">mph</option></select></label>
           <label>Field of view <input id="setFov" type="range" min="55" max="95" step="1" /><span id="fovVal"></span></label>
           <label>Racing line guide <input id="setLine" type="checkbox" /></label>
+          <label>AI rivals <select id="setAi"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option></select></label>
+          <label>Rear-view mirror <select id="setMirror"><option value="races">In races</option><option value="always">Always</option><option value="off">Off</option></select></label>
+          <label>Driving hints (first circuits) <input id="setHints" type="checkbox" /></label>
+          <label>Gamepad vibration <input id="setRumble" type="checkbox" /></label>
           <label>Ghost car <select id="setGhost"><option value="best">Your best</option><option value="record">World record</option><option value="both">Both</option><option value="off">Off</option></select></label>
           <label>Camera shake <input id="setShake" type="checkbox" /></label>
           <label>Effects volume <input id="setSfx" type="range" min="0" max="1" step="0.05" /></label>
@@ -128,10 +179,11 @@
           <tr><td>M</td><td>Mute</td></tr>
           <tr><td>Esc</td><td>Pause</td></tr>
           <tr><td>N / Enter</td><td>Next track (on the finish screen)</td></tr>
+          <tr><td>P</td><td>Watch the replay (on the finish screen)</td></tr>
         </table>
         <p class="sub">Gamepads work too: left stick steers, right trigger (or A) accelerates, left trigger (or B) brakes, X is the handbrake. Start pauses, Y restarts, Back resets the car, RB changes camera.</p>
         <p class="sub"><b>Drifting:</b> flick the handbrake into a corner, then stay on the throttle and keep steering into the corner. The car holds the drift while you steer into it. Let go of the steering, countersteer or lift off to straighten up.</p>
-        <p class="sub">The racing line on the road shows where to go: <b class="g">green</b> flat out, <b class="y">yellow</b> turning, <b class="r">red</b> brake.</p>
+        <p class="sub">The racing line on the road shows where to go: <b class="cg">green</b> flat out, <b class="cy">yellow</b> turning, <b class="cr">red</b> brake.</p>
       </div>
     </div>
 
@@ -141,6 +193,7 @@
         <h2>Paused</h2>
         <button id="btnResume" class="primary">Resume</button>
         <button id="btnRestart">Restart</button>
+        <button id="btnPhoto">Photo mode</button>
         <button id="btnPauseSettings">Settings</button>
         <button id="btnPauseMenu">Main menu</button>
       </div>
@@ -154,14 +207,28 @@
         <div id="finTime" class="mono big"></div>
         <div id="finNote" class="sub"></div>
         <div id="finLaps"></div>
+        <div id="finSectors" class="sub"></div>
+        <div id="finTable" class="sttable"></div>
+        <div id="finDrift" class="sub"></div>
         <div id="finUnlock"></div>
         <div id="finOnline" class="sub"></div>
         <div class="row">
           <button id="btnRetry">Retry <kbd>R</kbd></button>
+          <button id="btnReplay">Replay <kbd>P</kbd></button>
           <button id="btnNext" class="primary">Next track <kbd>N</kbd></button>
           <button id="btnFinMenu">Menu <kbd>Esc</kbd></button>
         </div>
       </div>
+    </div>
+
+    <div id="achPop" class="hidden"><div class="at">ACHIEVEMENT</div><div id="achName"></div><div id="achDesc" class="sub"></div></div>
+    <div id="replayHud" class="hidden">
+      <div id="rpTitle"></div>
+      <div id="rpTime" class="mono"></div>
+      <div class="sub">Space pause · ← → skip 5 s · 1 2 3 speed · C camera · Esc back</div>
+    </div>
+    <div id="photoHud" class="hidden">
+      <div class="sub">PHOTO MODE · drag or WASD to move · Q E up/down · mouse wheel zoom · <b>Enter</b> save picture · Esc back</div>
     </div>
 
     <div id="touch" class="hidden">

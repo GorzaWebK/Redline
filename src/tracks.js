@@ -16,6 +16,9 @@ const NAMES = [
 
 export const TRACK_COUNT = NAMES.length;
 
+/** Circuits raced in the rain (less grip; gold times are set in the wet too). */
+export const WET_TRACKS = new Set([4, 11, 16, 22]);
+
 /** Difficulty 0..1 for track index k. */
 export const diffOf = (k) => k / (TRACK_COUNT - 1);
 
@@ -24,6 +27,7 @@ export const TRACKS = NAMES.map((name, k) => ({
   name,
   theme: THEME_IDS[Math.floor(k / 6)],
   diff: diffOf(k),
+  wet: WET_TRACKS.has(k + 1),
   seed: SEEDS[k] ? SEEDS[k].seed : 0,
   gold: SEEDS[k] ? SEEDS[k].gold : 0, // seconds, the autopilot's 3-lap time
 }));
@@ -47,7 +51,11 @@ export function medalFor(tr, time) {
 
 const cache = new Map();
 export function trackData(tr) {
-  const key = `${tr.seed}|${tr.diff}`;
-  if (!cache.has(key)) cache.set(key, generateTrack(tr.seed, tr.diff));
+  const key = `${tr.seed}|${tr.diff}|${tr.wet ? 1 : 0}`;
+  if (!cache.has(key)) {
+    const t = generateTrack(tr.seed, tr.diff);
+    if (t) t.wet = !!tr.wet;
+    cache.set(key, t);
+  }
   return cache.get(key);
 }

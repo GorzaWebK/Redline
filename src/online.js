@@ -2,8 +2,11 @@ import { ONLINE_CONFIG } from './online-config.js';
 
 // Online leaderboards: Firebase Realtime Database + anonymous sign-in, on the
 // shared project. Everything lives under redline/:
-//   redline/scores/t<N>/<uid> = { name, time, lap, at }   one best per player per track
-//   redline/ghosts/t<N>/<uid> = { time, data, at }         the recording of that best
+//   redline/scores/<board>/<pid> = { name, time, lap, car, at }  one best per player per board
+//   redline/ghosts/<board>/<pid> = { time, data, at }            the recording of that best
+//   redline/accounts/<code> = { pid, save, at }                  account codes (account.js)
+//   redline/members/<pid>/<uid> = code                           browsers that joined an account
+// A board is t1..t24 for the circuits or d20261119 for a day's daily challenge.
 // The security rules only let you write your own entries and only improve your time.
 //
 // ?emulator=1 talks to local Firebase emulators instead (for testing).
@@ -29,7 +32,7 @@ export function cleanName(name) {
   return n || 'Driver';
 }
 
-const board = (trackId) => `t${trackId}`;
+const board = (trackId) => (typeof trackId === 'number' ? `t${trackId}` : String(trackId));
 
 async function connect() {
   if (!onlineEnabled) throw new Error('Online is switched off');
@@ -56,25 +59,62 @@ async function connect() {
 
 export async function myUid() { return (await connect()).uid; }
 
+// --- accounts -------------------------------------------------------------
+// Times are saved under your account id ("pid"): this browser's sign-in id,
+// or with an account code, the account's id (this browser joins the account
+// first, which the rules check before letting it save there).
+let account = null, joined = null;
+export function setAccount(a) { account = a && a.code && a.pid ? { code: a.code, pid: a.pid } : null; }
+
+async function ident() {
+  const f = await connect();
+  if (!account || account.pid === f.uid) return { ...f, pid: f.uid };
+  if (joined !== account.code) {
+    try {
+      await withTimeout(f.set(f.ref(f.db, `redline/members/${account.pid}/${f.uid}`), account.code), 'Joining your account');
+      joined = account.code;
+    } catch { return { ...f, pid: f.uid }; }
+  }
+  return { ...f, pid: account.pid };
+}
+
+/** A new account holding `save` (text from packSave). Returns { code, pid }. */
+export async function createAccount(code, save) {
+  const f = await connect();
+  await withTimeout(f.set(f.ref(f.db, `redline/accounts/${code}`), { pid: f.uid, save, at: f.serverTimestamp() }), 'Creating your account');
+  return { code, pid: f.uid };
+}
+/** { pid, save } for a code, or null. */
+export async function fetchAccount(code) {
+  const f = await connect();
+  const v = (await withTimeout(f.get(f.ref(f.db, `redline/accounts/${code}`)), 'Loading the account')).val();
+  return v && typeof v.pid === 'string' && typeof v.save === 'string' ? { pid: v.pid, save: v.save } : null;
+}
+export async function writeAccount(code, save) {
+  const f = await connect();
+  const cur = (await withTimeout(f.get(f.ref(f.db, `redline/accounts/${code}/pid`)), 'Loading the account')).val();
+  await withTimeout(f.set(f.ref(f.db, `redline/accounts/${code}`), { pid: cur || f.uid, save, at: f.serverTimestamp() }), 'Saving to your account');
+}
+
 /**
  * Submit a finished race. Saved only if it beats your online best (or your name
  * changed). A new best uploads its ghost in the same write. Returns { saved, best }.
  */
-export async function submitScore(trackId, name, time, lap, ghost = null) {
-  const f = await connect();
+export async function submitScore(trackId, name, time, lap, ghost = null, car = 'gt') {
+  const f = await ident();
   const id = board(trackId);
-  const mine = f.ref(f.db, `redline/scores/${id}/${f.uid}`);
+  const mine = f.ref(f.db, `redline/scores/${id}/${f.pid}`);
   const current = (await withTimeout(f.get(mine), 'Loading your time')).val();
   const clean = cleanName(name);
   if (current && current.time <= time && current.name === clean) return { saved: false, best: current.time };
   const improved = !current || time < current.time;
   const entry = improved
-    ? { name: clean, time, lap, at: f.serverTimestamp() }
-    : { name: clean, time: current.time, lap: current.lap, at: f.serverTimestamp() };
+    ? { name: clean, time, lap, car, at: f.serverTimestamp() }
+    : { name: clean, time: current.time, lap: current.lap, car: current.car || 'gt', at: f.serverTimestamp() };
   if (improved && ghost) {
     await withTimeout(f.update(f.ref(f.db, 'redline'), {
-      [`scores/${id}/${f.uid}`]: entry,
-      [`ghosts/${id}/${f.uid}`]: { time, data: ghost, at: f.serverTimestamp() },
+      [`scores/${id}/${f.pid}`]: entry,
+      [`ghosts/${id}/${f.pid}`]: { time, data: ghost, at: f.serverTimestamp() },
     }), 'Saving your time');
   } else {
     await withTimeout(f.set(mine, entry), 'Saving your time');
@@ -84,19 +124,19 @@ export async function submitScore(trackId, name, time, lap, ghost = null) {
 
 /** Top `count` times on a track: [{ uid, name, time, lap, me }], fastest first. */
 export async function getLeaderboard(trackId, count = 10) {
-  const f = await connect();
+  const f = await ident();
   const q = f.query(f.ref(f.db, `redline/scores/${board(trackId)}`), f.orderByChild('time'), f.limitToFirst(count));
   const snap = await withTimeout(f.get(q), 'Loading the leaderboard');
   const out = [];
-  snap.forEach((c) => { const v = c.val(); out.push({ uid: c.key, name: v.name, time: v.time, lap: v.lap, me: c.key === f.uid }); });
+  snap.forEach((c) => { const v = c.val(); out.push({ uid: c.key, name: v.name, time: v.time, lap: v.lap, car: v.car || 'gt', me: c.key === f.pid }); });
   return out.sort((a, b) => a.time - b.time);
 }
 
 /** Your entry and world position on a track: { time, lap, rank } or null. */
 export async function getMyRank(trackId) {
-  const f = await connect();
+  const f = await ident();
   const id = board(trackId);
-  const mine = (await withTimeout(f.get(f.ref(f.db, `redline/scores/${id}/${f.uid}`)), 'Loading your time')).val();
+  const mine = (await withTimeout(f.get(f.ref(f.db, `redline/scores/${id}/${f.pid}`)), 'Loading your time')).val();
   if (!mine) return null;
   const q = f.query(f.ref(f.db, `redline/scores/${id}`), f.orderByChild('time'), f.endAt(mine.time), f.limitToFirst(2000));
   const snap = await withTimeout(f.get(q), 'Loading your rank');

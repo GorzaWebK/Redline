@@ -28,8 +28,18 @@ function fbm(x, y, seed, oct = 4) {
 }
 const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
+/** A theme in the rain: grey sky, closer fog, dimmer sun. */
+function wetVersion(th) {
+  const grey = (c, k) => new THREE.Color(c).lerp(new THREE.Color(th.night ? 0x1a1e2a : 0x8a929c), k).getHex();
+  return {
+    ...th, skyTop: grey(th.skyTop, 0.75), skyBottom: grey(th.skyBottom, 0.6), sunGlow: grey(th.sunGlow, 0.9),
+    fog: grey(th.fog, 0.6), fogNear: th.fogNear * 0.4, fogFar: th.fogFar * 0.5,
+    sunInt: th.sunInt * 0.4, hemiInt: th.hemiInt * 1.1, mountains: grey(th.mountains, 0.5),
+  };
+}
+
 export function buildWorld(track, themeId, { quality = 'high', racingLine = false } = {}) {
-  const th = THEMES[themeId] || THEMES.meadow;
+  const th = track.wet ? wetVersion(THEMES[themeId] || THEMES.meadow) : (THEMES[themeId] || THEMES.meadow);
   const t = track, N = t.N, hw = t.halfW, wall = t.wall;
   const group = new THREE.Group();
   const rnd = mulberry32(t.seed ^ 0x5eed);
@@ -63,7 +73,7 @@ export function buildWorld(track, themeId, { quality = 'high', racingLine = fals
   const loop = Array.from({ length: N + 1 }, (_, i) => i);
 
   // ---- road, run-off, kerbs, walls ----
-  const roadMat = keep(new THREE.MeshStandardMaterial({ map: keep(TX.asphaltTexture(th.night)), roughness: 0.92, metalness: 0 }));
+  const roadMat = keep(new THREE.MeshStandardMaterial({ map: keep(TX.asphaltTexture(th.night)), roughness: track.wet ? 0.3 : 0.92, metalness: track.wet ? 0.25 : 0, color: track.wet ? 0x9a9ea6 : 0xffffff }));
   const road = strip(loop, (i) => [P(i, -hw, 0.03), P(i, hw, 0.03)], 14, roadMat);
   road.receiveShadow = true;
 
@@ -74,8 +84,7 @@ export function buildWorld(track, themeId, { quality = 'high', racingLine = fals
 
   // kerbs on the corners
   const kerbMat = keep(new THREE.MeshLambertMaterial({ map: keep(TX.kerbTexture(th.kerb[0], th.kerb[1])) }));
-  const corner = new Uint8Array(N);
-  for (let i = 0; i < N; i++) if (Math.abs(t.curv[i]) > 1 / 75) for (let k = -6; k <= 6; k++) corner[(i + k + N) % N] = 1;
+  const corner = t.kerb;
   let startAt = 0;
   while (startAt < N && corner[startAt]) startAt++; // begin the scan on a straight
   for (let k = 0; k < N; k++) {
