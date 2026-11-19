@@ -2,6 +2,8 @@
 
 A time trial racing game for the browser. Pick a circuit, find the racing line, beat your ghost and take the gold.
 
+**Play:** https://gorzawebk.github.io/Redline/
+
 PC only (keyboard or gamepad). Phones and tablets with only a touchscreen see a short "play on a PC" notice. Everything is made in code: the cars, circuits, scenery, textures, sky, sound effects and music. There are no image or audio files.
 
 > "Redline" is a working title.
