@@ -33,13 +33,13 @@ PC only (keyboard or gamepad). Phones and tablets with only a touchscreen see a 
 ### Modes
 - **Time trial:** 3 laps against the clock, your ghost and the world record. Medals, splits and online leaderboards.
 - **Race rivals:** Race five AI drivers (Kade Mercer, Rosa Vance, Tomi Hale, Ines Duarte and Ozzy Kwan) from a staggered grid, starting at the back. Each has their own pace and line. They move over to pass and bump into you and each other. Your position shows live, with name tags over each car, and the top three finishers get a podium. AI level: Easy, Normal or Hard (Settings).
-- **Championship:** One cup per setting. Six races against the same five rivals, scoring 10, 8, 6, 4, 2 and 1 points, with the standings shown between races. Finish the cup in the top three for a trophy. A cup opens once all six of its circuits are unlocked, and you can stop and continue later.
+- **Championship:** One cup per setting. Six races against the same five rivals, scoring 10, 8, 6, 4, 2 and 1 points, with the standings shown between races. Finish the cup in the top three for a trophy. You can stop a cup and continue it later.
 - **Daily challenge:** A new circuit every day (UTC), the same for everyone. The difficulty, setting and weather change from day to day, and like every circuit it's proven drivable by the autopilot first. It has its own online leaderboard (the first page of Leaderboards) and a streak for days in a row.
 
 ### Circuits
 - **24 circuits** in four settings of six: **Meadow** (green hills, day), **Canyon** (desert and red mesas), **Alpine** (snowy passes at golden hour) and **Night City** (street lights, glowing towers, headlights). Every race is 3 laps from a standing start, with a countdown on the start gantry's lights.
 - **Rain** on four circuits (4, 11, 16 and 22): less grip, a grey sky, falling rain, spray off the tyres and a shiny wet road. Their gold times are set in the wet.
-- **Difficulty:** Circuits get longer (0.8 km up to 1.9 km a lap), narrower, hillier and twistier, with tighter hairpins, as you go. Each one unlocks when you finish the one before.
+- **Difficulty:** Circuits get longer (0.8 km up to 1.9 km a lap), narrower, hillier and twistier, with tighter hairpins, as you go. All 24 are open from the start: race them in any order.
 
 ### Cars and driving
 - **Four cars**, each with its own handling, body shape and engine sound:
@@ -85,7 +85,7 @@ PC only (keyboard or gamepad). Phones and tablets with only a touchscreen see a 
 - The physics (`src/car.js`) and race rules (`src/race.js`) contain no drawing code. They run on a fixed 120 Hz timestep, so a run plays the same at any frame rate and can be tested in Node.
 - The autopilot (`src/bot.js`) drives the racing line at the fastest speed the grip allows, braking in time for each corner. `scripts/find-seeds.mjs` picks a seed for each circuit that the autopilot drives cleanly (no wall hits, no grass) and records its 3-lap time as the gold medal time, in `src/track-seeds.js`. Rerun it (`npm run seeds`) after changing the generator, the car or the autopilot.
 - The AI rivals (`src/rivals.js`) are the same autopilot with a little less grip and pace, each shifted off the racing line by its own amount. They move over when a car is in the way. Cars collide as two circles each, pushing apart and trading speed.
-- Testing helpers: `?bot=1` lets the autopilot drive, `?track=N` opens circuit N (if unlocked; add `&mode=race` to race the AI), `?daily` opens today's daily challenge, and `?unlock=all` unlocks every circuit, car and paint for that visit.
+- Testing helpers: `?bot=1` lets the autopilot drive, `?track=N` opens circuit N (add `&mode=race` to race the AI), `?daily` opens today's daily challenge, and `?unlock=all` unlocks every car and paint for that visit.
 
 | File | What it does |
 | --- | --- |

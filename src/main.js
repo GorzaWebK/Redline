@@ -127,7 +127,7 @@ const fmtPts = (n) => Math.round(n).toLocaleString('en-GB');
 const esc = (t) => String(t).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]);
 const hex = (n) => '#' + n.toString(16).padStart(6, '0');
 const isDaily = (tr) => !!tr.daily;
-const unlocked = (tr) => isDaily(tr) || UNLOCK_ALL || tr.id <= save.unlocked;
+const unlocked = () => true; // every circuit is open from the start
 const medalColor = { gold: 'var(--gold)', silver: 'var(--silver)', bronze: 'var(--bronze)' };
 function ordinal(n) {
   const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
@@ -498,10 +498,6 @@ function onFinish() {
     }
     const lap = race.bestLap;
     if (!save.bestLap[tr.id] || lap < save.bestLap[tr.id]) save.bestLap[tr.id] = lap;
-    if (typeof tr.id === 'number' && tr.id >= save.unlocked && tr.id < TRACKS.length) {
-      save.unlocked = tr.id + 1;
-      unlockMsg = `Unlocked: Track ${tr.id + 1}, ${TRACKS[tr.id].name}`;
-    }
     const st = save.stats;
     st.races++;
     st.laps += race.laps;
@@ -657,7 +653,7 @@ function renderCups() {
     b.className = `cup${open ? '' : ' locked'}`;
     b.innerHTML = `<span class="tro">${t === 1 ? '🏆' : t === 2 ? '🥈' : t === 3 ? '🥉' : '🏁'}</span><span class="cn">${th.name} Cup</span>
       <span class="cs">${cupTracks(theme).map((x) => x.name).join(', ')}</span>
-      <span class="ct">${!open ? '🔒 Unlock all six circuits first' : inProgress ? `Continue: race ${save.cup.round + 1} of 6` : t ? `Best: ${ordinal(t)}` : 'Not raced'}</span>`;
+      <span class="ct">${!open ? '🔒 Locked' : inProgress ? `Continue: race ${save.cup.round + 1} of 6` : t ? `Best: ${ordinal(t)}` : 'Not raced'}</span>`;
     b.addEventListener('click', () => {
       if (!open) return;
       sound.click();
@@ -713,7 +709,7 @@ function refreshMenu() {
   const c = medalCounts();
   let b = 0;
   for (const tr2 of TRACKS) if (medalFor(tr2, save.best[tr2.id]?.time)?.id === 'bronze') b++;
-  $('medalTotals').innerHTML = `<span><span class="dot gold"></span><b>${c.gold}</b></span><span><span class="dot silver"></span><b>${c.silver - c.gold}</b></span><span><span class="dot bronze"></span><b>${b}</b></span><span>${Math.min(save.unlocked, TRACKS.length)}/${TRACKS.length} tracks unlocked</span>`;
+  $('medalTotals').innerHTML = `<span><span class="dot gold"></span><b>${c.gold}</b></span><span><span class="dot silver"></span><b>${c.silver - c.gold}</b></span><span><span class="dot bronze"></span><b>${b}</b></span><span>${TRACKS.filter((t) => save.best[t.id]).length}/${TRACKS.length} tracks finished</span>`;
   refreshDailyButton();
   checkAchievements();
 }
@@ -744,7 +740,7 @@ function renderTracks() {
         <span class="meta">${(len / 1000).toFixed(2)} km · 3 laps${tr.wet ? ' · rain' : ''}</span>
         <span class="bt">${unlocked(tr) ? status : '🔒 Locked'}</span>
         ${m ? `<span class="md" style="background:${medalColor[m.id]}"></span>` : ''}`;
-      b.title = unlocked(tr) ? medalTimes(tr).map((x) => `${x.name} ${fmt(x.time)}`).join('\n') : 'Finish the track before to unlock';
+      b.title = medalTimes(tr).map((x) => `${x.name} ${fmt(x.time)}`).join('\n');
       b.addEventListener('click', () => { if (unlocked(tr)) { sound.click(); startRace(tr, { kind: trackMode }); } });
       cards.appendChild(b);
     }
@@ -862,7 +858,7 @@ function renderStats() {
     ['Gold medals', c.gold],
     ['Medals', `${c.any} / ${TRACKS.length}`],
     ['Daily streak (best)', `${save.daily.streak || 0} (${save.daily.best || 0})`],
-    ['Tracks unlocked', `${Math.min(save.unlocked, TRACKS.length)} / ${TRACKS.length}`],
+    ['Tracks finished', `${TRACKS.filter((t) => save.best[t.id]).length} / ${TRACKS.length}`],
   ];
   $('statList').innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
   const got = Object.keys(save.achievements).length;
