@@ -39,9 +39,10 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 - **Daily challenge:** A new circuit every day (UTC), the same for everyone. The difficulty, setting and weather change from day to day, and like every circuit it's proven drivable by the autopilot first. It has its own online leaderboard (the first page of Leaderboards) and a streak for days in a row.
 
 ### Circuits
-- **24 circuits** in four settings of six: **Meadow** (green hills, day), **Canyon** (desert and red mesas), **Alpine** (snowy passes at golden hour) and **Night City** (street lights, glowing towers, headlights). Every race is 3 laps from a standing start, with a countdown on the start gantry's lights.
+- **30 circuits** in five settings of six: **Meadow** (green hills, day), **Canyon** (desert and red mesas), **Alpine** (snowy passes at golden hour), **Night City** (street lights, glowing towers, headlights) and **Riviera** (sunny coast). Every race is 3 laps from a standing start, with a countdown on the start gantry's lights.
+- **Riviera Grand Prix circuits (25-30):** built a different way from the rest, piece by piece like a real Grand Prix track: long straights into tight hairpins, chicanes, fast kinks and double hairpins. Two of them (Crossover and Bridgeworks) are **figures of eight**, where the track crosses itself on a bridge with a deck and pillars.
 - **Rain** on four circuits (4, 11, 16 and 22): less grip, a grey sky, falling rain, spray off the tyres and a shiny wet road. Their gold times are set in the wet.
-- **Difficulty:** Circuits get longer (0.8 km up to 1.9 km a lap), narrower, hillier and twistier, with tighter hairpins, as you go. All 24 are open from the start: race them in any order.
+- **Difficulty:** Circuits get longer (0.8 km up to 1.9 km a lap), narrower, hillier and twistier, with tighter hairpins, as you go. All 30 are open from the start: race them in any order.
 
 ### Cars and driving
 - **Four cars**, each with its own handling, body shape and engine sound:
@@ -59,7 +60,7 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 ### Help on track
 - **Racing line guide:** A line on the road shows the fastest way round. It's **green** where you can go flat out, **yellow** through corners and **red** where you should brake. Switch it off in Settings or with **L**.
 - **Driving hints** on the first three circuits: a **BRAKE** prompt when you're coming into a corner too fast, and a tip to try a drift on the first tight corner (Settings to switch off).
-- **Medals:** Every circuit has gold, silver and bronze times. Gold is the autopilot's own time, silver is 10% slower and bronze 25% slower. The HUD shows the next medal to aim for.
+- **Medals:** Every circuit has gold, silver and bronze times **for each car**. Gold is the autopilot's own time in that car, silver is 10% slower and bronze 25% slower, so the Apex V10 has to be much quicker for gold than the Pocket Rocket. The HUD and the track cards show the medals for the car you're driving; a circuit's medal (for unlocks and achievements) is the best you've won there in any car.
 - **Ghosts:** Your best run on each circuit is recorded, and next time you race a see-through cyan copy of it. Online you can also race the **world record holder's ghost** (gold, with their name and time floating over it). Choose your best, world record, both or off in Settings (or **G** while driving).
 - **Sector times:** Each lap has three sectors. The time at each one is coloured **purple** (your fastest ever), **green** (faster than on your best run) or **yellow** (slower). The finish screen shows your theoretical best lap: your best sectors added up.
 - **Rear-view mirror** at the top of the screen in races (Settings: in races, always or off).
@@ -70,10 +71,10 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 - **Photo mode:** From the pause menu: move a free camera around the car (drag, WASD, Q/E and the mouse wheel), then press Enter to save a picture.
 
 ### Progress
-- **Achievements:** 25 to earn, with a pop-up when you get one. They cover finishing and medals, mastering each setting, clean races, rain, drifting, launches, race wins, cups, daily streaks, distance and top speed, collecting the cars and photo mode. Three unlock paints: Carbon, Neon and Chrome.
-- **Garage:** Choose your car and one of 15 paints. Three paints are free; the rest unlock with medals and achievements (up to Gold Leaf for gold on every circuit).
+- **Achievements:** 26 to earn, with a pop-up when you get one. They cover finishing and medals, mastering each setting, clean races, rain, drifting, launches, race wins, cups, daily streaks, distance and top speed, collecting the cars and photo mode. Three unlock paints: Carbon, Neon and Chrome.
+- **Garage:** Choose your car and one of 15 paints. Three paints are free; the rest unlock with medals and achievements (up to Gold Leaf for gold on 24 circuits).
 - **Profile:** Stats (races, wins, cups, laps, distance, time, top speed, drift points, medals and the daily streak), the achievements list and your account code.
-- **Online leaderboards:** A top 10 for every circuit and for each day's daily challenge, showing each driver's car, with your world rank. Your time is sent when you finish, and you set your driver name on the Leaderboards page.
+- **Online leaderboards:** A top 10 for every circuit and for each day's daily challenge, showing each driver's car, with your world rank. Filter by car (All cars, Redline GT, Pocket Rocket, Thunderbolt, Apex V10): each car has its own board, its own world record and record ghost. Your time is sent when you finish, and you set your driver name on the Leaderboards page.
 - **Account codes:** Profile → Account code gives you a secret code like `ABCD-EFGH-JKLM-NPQR`. It saves your progress online a few seconds after anything changes: best times, medals, unlocks, trophies, achievements, stats, name, car and paint. Type it into Redline in another browser to carry on there. Playing on two computers is fine, because saves are merged (fastest times, every unlock and the highest stats). It works like a password.
 - **Cameras:** Chase, far chase, hood and bumper. The view widens with speed, and the camera shakes on wall hits (can be switched off).
 - **Sound and music:** A synthesised engine per car that revs through six gears, tyre squeal, kerb rumble, grass rumble, wind, wall hits and countdown beeps. The generated soundtrack (A minor, 124 BPM) is calm in the menus, and builds with drums, bass and an arpeggio as you speed up.
@@ -83,7 +84,7 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 ## How it's built
 
 - Plain JavaScript + [Vite](https://vite.dev), [three.js](https://threejs.org) for 3D, the Web Audio API for sound, and Firebase for the online leaderboards.
-- Circuits are generated from a seed and a difficulty (`src/track.js`). The same seed always gives the same circuit: a closed loop from a smoothed spline, with corners no tighter than the difficulty allows, no part close enough to another to share a wall, gentle hills, and the start on the straightest stretch. The racing line is worked out by repeatedly pulling each point of the line straighter within the road's width.
+- Circuits are generated from a seed and a difficulty (`src/track.js`). The same seed always gives the same circuit: a closed loop from a smoothed spline, with corners no tighter than the difficulty allows, no part close enough to another to share a wall, gentle hills, and the start on the straightest stretch. The racing line is worked out by repeatedly pulling each point of the line straighter within the road's width. The Riviera circuits are laid out piece by piece instead (a straight, then a hairpin, chicane, kink or corner, and so on), with the last two straights solved so the loop closes exactly; a figure of eight is a lemniscate whose crossing is lifted onto a bridge.
 - The physics (`src/car.js`) and race rules (`src/race.js`) contain no drawing code. They run on a fixed 120 Hz timestep, so a run plays the same at any frame rate and can be tested in Node.
 - The autopilot (`src/bot.js`) drives the racing line at the fastest speed the grip allows, braking in time for each corner. `scripts/find-seeds.mjs` picks a seed for each circuit that the autopilot drives cleanly (no wall hits, no grass) and records its 3-lap time as the gold medal time, in `src/track-seeds.js`. Rerun it (`npm run seeds`) after changing the generator, the car or the autopilot.
 - The AI rivals (`src/rivals.js`) are the same autopilot with a little less grip and pace, each shifted off the racing line by its own amount. They move over when a car is in the way. Cars collide as two circles each, pushing apart and trading speed.
@@ -104,10 +105,10 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 | `src/hints.js` | Driving hints for the first circuits |
 | `src/race.js` | Countdown, laps, sectors, finish, putting the car back on track |
 | `src/bot.js` | The autopilot and its speed plan |
-| `src/tracks.js` | The 24 circuits: names, themes, difficulty, medal times |
+| `src/tracks.js` | The 30 circuits: names, themes, styles, difficulty, medal times per car |
 | `src/track-seeds.js` | Checked seeds and gold times (written by `scripts/find-seeds.mjs`) |
 | `src/world.js` | Builds the 3D world: road, kerbs, walls, gantry, grandstand, terrain, scenery, sky, light |
-| `src/themes.js` | The four settings (sky, light, ground, scenery) |
+| `src/themes.js` | The five settings (sky, light, ground, scenery) |
 | `src/carModel.js` | The car model and paints |
 | `src/effects.js` | Tyre smoke, skid marks, sparks |
 | `src/ghost.js` | Recording, packing and playing back ghosts |
@@ -125,9 +126,10 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 
 Redline uses the same Firebase project as Foundry Arena and Skyhook ("foundry-arena"), with its own `redline/` section:
 
-- `redline/scores/t<N>/<uid>`: `{ name, time, lap, at }`, one best per driver per circuit.
+- `redline/scores/t<N>/<uid>`: `{ name, time, lap, car, at }`, one best per driver per circuit (1-30).
 - `redline/ghosts/t<N>/<uid>`: `{ time, data, at }`, the recording of that best.
 - Daily challenge boards are named `d20261119` (one per day) instead of `t<N>`.
+- Every board also has one board per car: `t5_hyper` is the Apex V10's board on circuit 5 (the security rules check the car matches).
 - `redline/accounts/<code>`: `{ pid, save, at }`, an account code's save.
 - `redline/members/<pid>/<uid>`: browsers that joined an account, so they can save times under it.
 

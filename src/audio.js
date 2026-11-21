@@ -52,6 +52,10 @@ export class Sound {
     this.kerbLfo.connect(lfoDepth).connect(this.kerbAm.gain);
     this.kerbLfo.start();
     loopNoise().connect(this.kerbFilter).connect(this.kerbAm).connect(this.kerbGain).connect(this.sfx);
+    // rain on the car (races where the rain arrives, and wet circuits)
+    this.rainFilter = ctx.createBiquadFilter(); this.rainFilter.type = 'highpass'; this.rainFilter.frequency.value = 2500;
+    this.rainGain = ctx.createGain(); this.rainGain.gain.value = 0;
+    loopNoise().connect(this.rainFilter).connect(this.rainGain).connect(this.sfx);
     // wind
     this.windFilter = ctx.createBiquadFilter(); this.windFilter.type = 'bandpass'; this.windFilter.frequency.value = 500; this.windFilter.Q.value = 0.7;
     this.windGain = ctx.createGain(); this.windGain.gain.value = 0;
@@ -64,6 +68,41 @@ export class Sound {
     if (!this.ctx) return;
     this.engine.stop();
     this.engine = buildEngine(this.ctx, this.sfx, this.noise, profile);
+  }
+
+  setRain(on) { this.rainOn = on; }
+
+  /** Engine voices for the AI rivals (one per car, with its own engine profile). */
+  setRivals(profiles = []) {
+    for (const v of this.rivalVoices || []) { v.engine.stop(); setTimeout(() => { try { v.pan.disconnect(); v.gain.disconnect(); } catch { /* gone */ } }, 300); }
+    this.rivalVoices = [];
+    if (!this.ctx) return;
+    for (const prof of profiles) {
+      const gain = this.ctx.createGain(); gain.gain.value = 0;
+      const pan = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : this.ctx.createGain();
+      pan.connect(gain).connect(this.sfx);
+      this.rivalVoices.push({ engine: buildEngine(this.ctx, pan, this.noise, prof), pan, gain });
+    }
+  }
+
+  /**
+   * Each frame: per rival { rpm, throttle, right, fwd, closing } where right/fwd
+   * are metres from the camera (to the right, ahead) and closing is m/s towards
+   * you. Only the nearest `max` are heard.
+   */
+  updateRivals(list, max = 3) {
+    if (!this.ctx || !this.rivalVoices) return;
+    const t = this.ctx.currentTime;
+    const near = list.map((r, k) => ({ k, d: Math.hypot(r.right, r.fwd) })).sort((a, b) => a.d - b.d).slice(0, max).map((x) => x.k);
+    this.rivalVoices.forEach((v, k) => {
+      const r = list[k];
+      if (!r || !near.includes(k)) { v.gain.gain.setTargetAtTime(0, t, 0.1); v.engine.set(1000, 0, false, t); return; }
+      const d = Math.hypot(r.right, r.fwd);
+      const doppler = Math.max(0.85, Math.min(1.15, 1 + r.closing / 343)); // higher as it comes at you, lower as it goes
+      v.engine.set(r.rpm * doppler, r.throttle, true, t);
+      v.gain.gain.setTargetAtTime(Math.min(0.9, 1 / (1 + (d / 9) ** 2)), t, 0.06);
+      if (v.pan.pan) v.pan.pan.setTargetAtTime(Math.max(-0.9, Math.min(0.9, r.right / Math.max(4, d))), t, 0.06);
+    });
   }
 
   setMuted(m) { this.muted = m; if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.05); }
@@ -81,12 +120,13 @@ export class Sound {
     this.grassGain.gain.setTargetAtTime(active && grass ? Math.min(0.35, speed * 0.015) : 0, t, 0.05);
     this.kerbGain.gain.setTargetAtTime(active && kerb && speed > 3 ? Math.min(0.5, 0.15 + speed * 0.01) : 0, t, 0.03);
     this.kerbLfo.frequency.setTargetAtTime(Math.max(2, speed / 2), t, 0.05);
+    if (this.rainGain) this.rainGain.gain.setTargetAtTime(active && this.rainOn ? 0.05 + Math.min(0.04, speed * 0.0008) : 0, t, 0.8);
     const w = Math.min(1, speed / 75);
     this.windGain.gain.setTargetAtTime(active ? w * w * 0.25 : 0, t, 0.1);
     this.windFilter.frequency.setTargetAtTime(300 + w * 1200, t, 0.1);
   }
 
-  silence() { this.update({ active: false }); }
+  silence() { this.update({ active: false }); this.updateRivals([]); }
 
   tone({ type = 'sine', freq = 440, to = null, dur = 0.2, gain = 0.3, delay = 0, bus = null }) {
     if (!this.ctx) return;

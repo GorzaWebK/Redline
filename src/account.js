@@ -25,7 +25,7 @@ export function parseCode(text) {
   return c.length === CODE_LEN && [...c].every((ch) => CODE_CHARS.includes(ch)) ? c : null;
 }
 
-const KEYS = ['name', 'best', 'bestLap', 'bestSectors', 'raceBest', 'unlocked', 'paint', 'car', 'stats', 'achievements', 'trophies', 'daily', 'profileAt'];
+const KEYS = ['name', 'best', 'bestLap', 'bestSectors', 'raceBest', 'carBest', 'medals', 'earned', 'spent', 'kits', 'setup', 'unlocked', 'paint', 'car', 'stats', 'achievements', 'trophies', 'daily', 'profileAt'];
 
 /** The parts of a save that travel with an account, as text. */
 export function packSave(save) {
@@ -72,6 +72,17 @@ export function mergeSaves(a, b) {
       return x === null ? y : y === null ? x : Math.min(x, y);
     });
   }
+  out.carBest = {};
+  for (const src of [obj(a.carBest), obj(b.carBest)]) for (const [id, m] of Object.entries(src)) out.carBest[id] = minMap(out.carBest[id], m);
+  const RANK = { gold: 3, silver: 2, bronze: 1 };
+  out.medals = { ...obj(a.medals) };
+  for (const [id, m] of Object.entries(obj(b.medals))) if ((RANK[m] || 0) > (RANK[out.medals[id]] || 0)) out.medals[id] = m;
+  // the drift wallet: both totals only ever grow, so the larger of each is right
+  out.earned = Math.max(num(a.earned) || 0, num(b.earned) || 0);
+  out.spent = Math.max(num(a.spent) || 0, num(b.spent) || 0);
+  out.kits = { ...obj(a.kits) };
+  for (const [car, list] of Object.entries(obj(b.kits))) if (Array.isArray(list)) out.kits[car] = [...new Set([...(out.kits[car] || []), ...list])];
+  out.setup = { ...obj(b.setup), ...obj(a.setup) };
   out.unlocked = Math.max(num(a.unlocked) || 1, num(b.unlocked) || 1);
   out.achievements = { ...obj(b.achievements), ...obj(a.achievements) };
   out.stats = { ...obj(a.stats) };

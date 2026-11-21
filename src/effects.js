@@ -24,6 +24,8 @@ export class Effects {
         void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d,d); if (r > 0.25) discard; gl_FragColor = vec4(color, vA * (1.0 - r * 4.0)); }`,
     });
     this.smokePts = new THREE.Points(g, this.smokeMat);
+    this.smokePts.layers.set(1); // the main camera sees layer 1; the rear-view mirror doesn't
+    this.amount = 1; // smoke density (phones use less)
     this.smokePts.frustumCulled = false;
     scene.add(this.smokePts);
 
@@ -94,7 +96,7 @@ export class Effects {
 
   puff(x, y, z, vx, vz, strength) {
     if (this.smoke.length >= MAX_SMOKE) this.smoke.shift();
-    this.smoke.push({ x, y, z, vx: vx * 0.25 + (Math.random() - 0.5), vy: 0.6 + Math.random() * 0.6, vz: vz * 0.25 + (Math.random() - 0.5), age: 0, life: 1.2 + Math.random() * 0.8, s: 0.6 + strength * 0.5 });
+    this.smoke.push({ x, y, z, vx: vx * 0.2 + (Math.random() - 0.5) * 0.6, vy: 0.3 + Math.random() * 0.4, vz: vz * 0.2 + (Math.random() - 0.5) * 0.6, age: 0, life: 0.6 + Math.random() * 0.45, s: 0.45 + strength * 0.35 });
   }
 
   /** A skid mark segment for wheel w (0 = rear left, 1 = rear right), or a break in it. */
@@ -145,8 +147,8 @@ export class Effects {
       p.vx *= 0.97; p.vz *= 0.97;
       const f = p.age / p.life;
       this.sPos[n * 3] = p.x; this.sPos[n * 3 + 1] = p.y; this.sPos[n * 3 + 2] = p.z;
-      this.sSize[n] = p.s * (1 + f * 3);
-      this.sAlpha[n] = 0.35 * (1 - f);
+      this.sSize[n] = p.s * (1 + f * 1.6);
+      this.sAlpha[n] = 0.16 * this.amount * (1 - f) * (1 - f);
       n++;
     }
     for (let i = n; i < MAX_SMOKE; i++) this.sAlpha[i] = 0;

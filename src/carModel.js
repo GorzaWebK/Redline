@@ -2,6 +2,7 @@
 // lights and four wheels that spin and steer. Local axes: x forward, y up, z right.
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export const PAINTS = [
   { id: 'red', name: 'Racing Red', color: 0xd8261c },
@@ -63,6 +64,39 @@ function extrude(points, depth, bevel) {
 }
 
 /** Build a car. kind = gt, hatch, muscle or hyper. ghost = see-through copy for replays. */
+/**
+ * Merge a group's child meshes (except `keep`) into one mesh per material, or
+ * with `single` into one mesh whose colours live in its vertices.
+ */
+function mergeStatic(group, keep, geos, ghost, single = null) {
+  const byMat = new Map();
+  for (const m of [...group.children]) {
+    if (!m.isMesh || keep.has(m)) continue;
+    m.updateMatrix();
+    let geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+    geo = geo.applyMatrix4(m.matrix);
+    for (const k of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(k)) geo.deleteAttribute(k);
+    if (single) {
+      const col = m.material.color, n = geo.attributes.position.count, a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { a[i * 3] = col.r; a[i * 3 + 1] = col.g; a[i * 3 + 2] = col.b; }
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(a, 3));
+    }
+    const key = single || m.material;
+    if (!byMat.has(key)) byMat.set(key, []);
+    byMat.get(key).push(geo);
+    group.remove(m);
+  }
+  for (const [mat, list] of byMat) {
+    const merged = list.length === 1 ? list[0] : mergeGeometries(list, false);
+    list.forEach((g) => { if (g !== merged) g.dispose(); });
+    geos.push(merged);
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = !ghost;
+    group.add(mesh);
+  }
+}
+
 export function buildCar({ color = 0xd8261c, ghost = false, ghostColor = 0x5ff0ff, kind = 'gt' } = {}) {
   const S = SHAPES[kind] || SHAPES.gt;
   const WHEEL_R = S.wheels.r;
@@ -81,7 +115,8 @@ export function buildCar({ color = 0xd8261c, ghost = false, ghostColor = 0x5ff0f
   const head = new THREE.MeshBasicMaterial({ color: 0xfff6dc });
   const tail = new THREE.MeshBasicMaterial({ color: 0x8a0d0d });
   const stripe = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.4 });
-  const mats = [paint, dark, glass, rimMat, tyreMat, head, tail, stripe];
+  const wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.45 });
+  const mats = [paint, dark, glass, rimMat, tyreMat, head, tail, stripe, wheelMat];
 
   const add = (geo, mat, x = 0, y = 0, z = 0, parent = body) => {
     const m = new THREE.Mesh(g(geo), mat);
@@ -97,17 +132,19 @@ export function buildCar({ color = 0xd8261c, ghost = false, ghostColor = 0x5ff0f
   add(new THREE.BoxGeometry(S.roof[2], 0.05, S.cabinW - 0.12), paint, S.roof[0], S.roof[1], 0);
   // dark trim: splitter, skirts, diffuser
   const L = S.len;
-  add(new THREE.BoxGeometry(0.4, 0.08, S.width + 0.1), dark, L - 0.15, 0.28, 0);
-  add(new THREE.BoxGeometry(L * 1.1, 0.12, 0.08), dark, 0, 0.33, hw + 0.06);
-  add(new THREE.BoxGeometry(L * 1.1, 0.12, 0.08), dark, 0, 0.33, -hw - 0.06);
-  add(new THREE.BoxGeometry(0.35, 0.18, S.width - 0.2), dark, -L + 0.05, 0.36, 0);
+  // (kept for damage: they hang off when bashed)
+  const splitter = add(new THREE.BoxGeometry(0.4, 0.08, S.width + 0.1), dark, L - 0.15, 0.28, 0);
+  const skirtR = add(new THREE.BoxGeometry(L * 1.1, 0.12, 0.08), dark, 0, 0.33, hw + 0.06);
+  const skirtL = add(new THREE.BoxGeometry(L * 1.1, 0.12, 0.08), dark, 0, 0.33, -hw - 0.06);
+  const diffuser = add(new THREE.BoxGeometry(0.35, 0.18, S.width - 0.2), dark, -L + 0.05, 0.36, 0);
+  const wingParts = [];
   // rear wing
   const W = S.wing;
   if (W.small) {
-    add(new THREE.BoxGeometry(0.3, 0.05, W.w), paint, W.x, W.y, 0);
+    wingParts.push(add(new THREE.BoxGeometry(0.3, 0.05, W.w), paint, W.x, W.y, 0));
   } else {
     const up = W.tall ? 0.45 : 0.3;
-    add(new THREE.BoxGeometry(W.tall ? 0.5 : 0.42, 0.06, W.w), paint, W.x, W.y, 0);
+    wingParts.push(add(new THREE.BoxGeometry(W.tall ? 0.5 : 0.42, 0.06, W.w), paint, W.x, W.y, 0));
     add(new THREE.BoxGeometry(0.14, up, 0.06), dark, W.x + 0.03, W.y - up / 2 - 0.02, 0.52);
     add(new THREE.BoxGeometry(0.14, up, 0.06), dark, W.x + 0.03, W.y - up / 2 - 0.02, -0.52);
     if (W.tall) for (const sg of [-1, 1]) add(new THREE.BoxGeometry(0.55, 0.22, 0.04), paint, W.x, W.y + 0.02, sg * W.w / 2);
@@ -118,10 +155,18 @@ export function buildCar({ color = 0xd8261c, ghost = false, ghostColor = 0x5ff0f
   if (Array.isArray(S.stripe)) add(new THREE.BoxGeometry(1.15, 0.02, 0.32), stripe, S.stripe[0], S.stripe[1], 0).rotation.z = S.stripe[2];
   else if (S.stripe === 'double') for (const sg of [-1, 1]) add(new THREE.BoxGeometry(1.6, 0.02, 0.16), stripe, 1.5, 0.85, sg * 0.18).rotation.z = -0.06;
   const [hx, hy, hz] = S.lights.head, [tx, ty, tz] = S.lights.tail;
-  add(new THREE.BoxGeometry(0.06, 0.12, 0.42), head, hx, hy, hz);
+  const headR = add(new THREE.BoxGeometry(0.06, 0.12, 0.42), head, hx, hy, hz);
   add(new THREE.BoxGeometry(0.06, 0.12, 0.42), head, hx, hy, -hz);
-  add(new THREE.BoxGeometry(0.06, 0.1, 0.5), tail, tx, ty, tz);
+  const tailL = add(new THREE.BoxGeometry(0.06, 0.1, 0.5), tail, tx, ty, tz);
   add(new THREE.BoxGeometry(0.06, 0.1, 0.5), tail, tx, ty, -tz);
+  const broken = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.8 });
+  mats.push(broken);
+  const base = new Map([splitter, skirtR, skirtL, diffuser, ...wingParts].map((m) => [m, { y: m.position.y, rz: m.rotation.z, rx: m.rotation.x }]));
+  let baseColor = new THREE.Color(color), dmgKey = '';
+
+  // fewer draw calls: merge the parts that never move on their own into one
+  // mesh per material (the trim that hangs off when damaged stays separate)
+  mergeStatic(body, new Set([splitter, skirtR, skirtL, diffuser, headR, tailL, ...wingParts]), geos, ghost);
 
   // wheels: pivot (steers) > spin (rolls)
   const tyreGeo = g(new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.3, 20).rotateX(Math.PI / 2));
@@ -139,6 +184,7 @@ export function buildCar({ color = 0xd8261c, ghost = false, ghostColor = 0x5ff0f
       const m = new THREE.Mesh(geo, mat); m.castShadow = !ghost; spin.add(m);
     }
     for (let k = 0; k < 3; k++) { const sp = new THREE.Mesh(spokeGeo, dark); sp.rotation.z = (k * Math.PI) / 3; spin.add(sp); }
+    mergeStatic(spin, new Set(), geos, ghost, wheelMat);
     wheels.push({ pivot, spin, front });
   }
 
@@ -151,7 +197,25 @@ export function buildCar({ color = 0xd8261c, ghost = false, ghostColor = 0x5ff0f
   let roll = 0, pitch = 0;
   return {
     root, body, wheels,
-    setPaint(c, metal = false) { paint.color.setHex(c); paint.metalness = metal ? 0.9 : 0.35; paint.roughness = metal ? 0.22 : 0.32; },
+    setPaint(c, metal = false) { baseColor = new THREE.Color(c); paint.color.setHex(c); paint.metalness = metal ? 0.9 : 0.35; paint.roughness = metal ? 0.22 : 0.32; dmgKey = ''; },
+    /** Cosmetic damage { front, rear, left, right } 0..1: trim hangs off, lights break, paint gets scuffed. */
+    setDamage(d) {
+      if (ghost) return;
+      d = d || { front: 0, rear: 0, left: 0, right: 0 };
+      const key = [d.front, d.rear, d.left, d.right].map((x) => Math.round(x * 20)).join(',');
+      if (key === dmgKey) return;
+      dmgKey = key;
+      const hang = (m, amt, rz, rx = 0) => { const b = base.get(m); m.position.y = b.y - amt * 0.12; m.rotation.z = b.rz + rz * amt; m.rotation.x = b.rx + rx * amt; };
+      hang(splitter, d.front, -0.35, 0.12);
+      hang(diffuser, d.rear, 0.3, -0.1);
+      hang(skirtR, d.right, 0.05, 0.4);
+      hang(skirtL, d.left, -0.05, -0.4);
+      for (const w of wingParts) hang(w, Math.max(0, d.rear - 0.4), 0.5, 0.2);
+      headR.material = d.front > 0.55 ? broken : head;
+      tailL.material = d.rear > 0.55 ? broken : tail;
+      const avg = (d.front + d.rear + d.left + d.right) / 4;
+      paint.color.copy(baseColor).lerp(new THREE.Color(0x4a4640), Math.min(0.4, avg * 0.6));
+    },
     /** Place the model from a physics state (or an interpolated one). */
     pose(x, y, z, h, pitchRoad = 0) {
       root.position.set(x, y, z);

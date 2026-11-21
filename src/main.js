@@ -6,30 +6,35 @@ import '@fontsource/barlow-condensed/700-italic.css';
 import '@fontsource/barlow-condensed/800-italic.css';
 import './style.css';
 import * as THREE from 'three';
-import { TRACKS, THEME_IDS, trackData, medalTimes, medalFor } from './tracks.js';
+import { TRACKS, THEME_IDS, trackData, medalTimes, medalFor, MEDAL_RANK } from './tracks.js';
 import { THEMES } from './themes.js';
 import { buildWorld } from './world.js';
 import { buildCar, PAINTS } from './carModel.js';
 import { CARS, carById, CAR_RULES } from './cars.js';
 import { Effects } from './effects.js';
-import { Race } from './race.js';
+import { Race, simulate } from './race.js';
 import { DT } from './car.js';
 import { Bot, speedProfile } from './bot.js';
-import { RIVALS } from './rivals.js';
+import { RIVALS, qualiTimes, gridFromQuali } from './rivals.js';
+import { KITS, PRESETS, kitPrice, tunedSpec, activeSetup } from './tuning.js';
 import { DriftScore } from './drift.js';
 import { ACHIEVEMENTS, ACH_BY_ID, earnedFromSave } from './achievements.js';
 import { dayKey, dailyDef, msToNextDay, bumpStreak } from './daily.js';
+import { weekKey, weeklyDef, msToNextWeek, WEEKLY_PRIZE } from './weekly.js';
 import { newAccountCode, formatCode, parseCode, packSave, unpackSave, mergeSaves } from './account.js';
 import { tvCameras, Director, zoomFov } from './replay.js';
 import { Hints } from './hints.js';
-import { Input } from './input.js';
+import { Input, KEY_ACTIONS, keyLabel } from './input.js';
 import { Sound } from './audio.js';
 import { Music } from './music.js';
 import { GhostRecorder, GhostPlayer, encodeGhost, decodeGhost } from './ghost.js';
-import { loadSave, storeSave, loadGhost, storeGhost } from './save.js';
+import { loadSave, storeSave, loadGhost, storeGhost, loadMyTracks, storeMyTracks } from './save.js';
+import { customTrack, checkCustom, buildCustom, newTrackId, encodePts, decodePts, starterPts } from './community.js';
+import { Editor } from './editor.js';
 import {
   onlineEnabled, cleanName, submitScore, getLeaderboard, getMyRank, getRecordGhost,
   setAccount, createAccount, fetchAccount, writeAccount,
+  publishTrack, listCommunity, likeTrack, deleteTrack,
 } from './online.js';
 
 const $ = (id) => document.getElementById(id);
@@ -65,15 +70,19 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// dynamic resolution: when the frame rate drops in a race, draw fewer pixels
+// (down to 55%), and come back up when there's time to spare
+let resScale = 1, frameAvg = 1 / 60, resT = 0;
 function applyQuality() {
   const q = settings.quality;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, q === 'high' ? 2 : q === 'medium' ? 1.25 : 1));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q === 'high' ? 2 : q === 'medium' ? 1.25 : 1) * (settings.dynRes ? resScale : 1));
   renderer.shadowMap.enabled = q !== 'low';
   renderer.setSize(innerWidth, innerHeight);
 }
 applyQuality();
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.1, 12000);
+camera.layers.enable(1); // tyre smoke lives on layer 1 so the mirror can leave it out
 const mirrorCam = new THREE.PerspectiveCamera(55, 3.4, 0.5, 2000);
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
@@ -114,15 +123,27 @@ sound.setMusicVolume(settings.music);
 sound.setMuted(settings.mute);
 const music = new Music(sound);
 const effects = new Effects(scene);
+if (TOUCH) effects.amount = 0.7;
 
 const paintOf = (id) => PAINTS.find((p) => p.id === id) || PAINTS[0];
 let carModel = null, carDef = null;
-const ghostModel = buildCar({ ghost: true });
-ghostModel.root.visible = false;
+// ghosts are drawn as the car they were driven in
+let ghostModel = buildCar({ ghost: true });
+ghostModel.root.visible = false; ghostModel.kind = 'gt';
 scene.add(ghostModel.root);
-const recordModel = buildCar({ ghost: true, ghostColor: 0xffd25a });
-recordModel.root.visible = false;
+let recordModel = buildCar({ ghost: true, ghostColor: 0xffd25a });
+recordModel.root.visible = false; recordModel.kind = 'gt';
 scene.add(recordModel.root);
+function ghostAs(which, carId) {
+  const kind = carById(carId || 'gt').model;
+  const old = which === 'record' ? recordModel : ghostModel;
+  if (old.kind === kind) return;
+  scene.remove(old.root); old.dispose();
+  const m = buildCar({ ghost: true, kind, ...(which === 'record' ? { ghostColor: 0xffd25a } : {}) });
+  m.kind = kind; m.root.visible = false;
+  scene.add(m.root);
+  if (which === 'record') recordModel = m; else ghostModel = m;
+}
 // headlights (night and rain)
 const headlight = new THREE.SpotLight(0xfff2d8, 0, 110, 0.55, 0.55, 1.1);
 headlight.position.set(2.0, 0.75, 0);
@@ -154,7 +175,7 @@ const fmtShort = (t) => (t ? fmt(t) : '--');
 const fmtPts = (n) => Math.round(n).toLocaleString('en-GB');
 const esc = (t) => String(t).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]);
 const hex = (n) => '#' + n.toString(16).padStart(6, '0');
-const isDaily = (tr) => !!tr.daily;
+const isDaily = (tr) => !!tr.daily || !!tr.weekly || !!tr.community; // a daily, weekly or community circuit (not one of the 30)
 const unlocked = () => true; // every circuit is open from the start
 const medalColor = { gold: 'var(--gold)', silver: 'var(--silver)', bronze: 'var(--bronze)' };
 function ordinal(n) {
@@ -162,10 +183,23 @@ function ordinal(n) {
   return `${n}${s}`;
 }
 
+// medals: each car has its own medal times; a track's medal is the best won in any car
+if (!save.medals) { // older saves: bests were set in the Redline GT
+  save.medals = {};
+  for (const tr of TRACKS) {
+    const b = save.best[tr.id];
+    if (!b) continue;
+    const m = medalFor(tr, b.time, 'gt');
+    if (m) save.medals[tr.id] = m.id;
+    save.carBest[tr.id] = { gt: b.time, ...(save.carBest[tr.id] || {}) };
+  }
+}
+const medalOf = (tr) => (save.medals[tr.id] ? { id: save.medals[tr.id] } : null);
+const carBestOf = (tr, car = carDef.id) => save.carBest[tr.id]?.[car] || null;
 function medalCounts() {
   let gold = 0, silver = 0, any = 0;
   for (const tr of TRACKS) {
-    const m = medalFor(tr, save.best[tr.id]?.time);
+    const m = medalOf(tr);
     if (!m) continue;
     any++;
     if (m.id !== 'bronze') silver++;
@@ -182,9 +216,9 @@ const PAINT_RULES = {
   orange: { any: 10, text: '10 medals' },
   silver: { silver: 5, text: 'Silver or better on 5 tracks' },
   purple: { any: 15, text: '15 medals' },
-  teal: { any: 24, text: 'A medal on every track' },
+  teal: { any: 24, text: 'Medals on 24 tracks' },
   pink: { gold: 5, text: 'Gold on 5 tracks' },
-  gold: { gold: 24, text: 'Gold on every track' },
+  gold: { gold: 24, text: 'Gold on 24 tracks' },
   carbon: { ach: 'drift5', text: 'Achievement: Smoke Show' },
   neon: { ach: 'winHard', text: 'Achievement: Giant Killer' },
   chrome: { ach: 'cups', text: 'Achievement: Grand Champion' },
@@ -208,7 +242,7 @@ function award(id) {
 }
 function checkAchievements() {
   const ctx = {
-    save, counts: medalCounts(), tracks: TRACKS, medalOf: (t) => medalFor(t, save.best[t.id]?.time),
+    save, counts: medalCounts(), tracks: TRACKS, medalOf,
     carsUnlocked: CARS.every((c) => ruleMet(CAR_RULES[c.id], medalCounts(), true)),
   };
   for (const id of earnedFromSave(ctx)) award(id);
@@ -227,20 +261,28 @@ function showAchievements(now) {
 
 // ---------- the current track ----------
 let cur = null; // { tr, track, world, map, cams }
-function loadTrack(tr) {
-  if (cur && cur.tr === tr && cur.quality === settings.quality && cur.line === settings.racingLine) return;
+/**
+ * cond (races against the AI): { weather: 'default' | 'dry' | 'rain' | 'later', time: 'day' | 'sunset' | 'night' }.
+ * 'later' starts dry and the rain arrives during the race.
+ */
+function loadTrack(tr, cond = null) {
+  const ck = cond ? `${cond.weather}|${cond.time}` : '';
+  if (cur && cur.tr === tr && cur.quality === settings.quality && cur.line === settings.racingLine && cur.ck === ck && !(cond && cond.weather === 'later')) return;
   if (cur) { scene.remove(cur.world.group, cur.world.sky); cur.world.dispose(); }
-  const track = trackData(tr);
-  const world = buildWorld(track, tr.theme, { quality: settings.quality, racingLine: settings.racingLine });
+  const w = cond ? cond.weather : 'default';
+  let track = w === 'default' ? trackData(tr) : trackData({ ...tr, wet: w === 'rain' });
+  if (w === 'later') track = { ...track }; // its own copy: the rain will make it wet mid-race
+  const world = buildWorld(track, tr.theme, { quality: settings.quality, racingLine: settings.racingLine, colorBlind: settings.colorBlind, time: cond ? cond.time : 'day' });
   scene.add(world.group, world.sky);
   scene.fog = world.fog;
   scene.background = new THREE.Color(world.theme.fog);
   effects.clear();
   effects.setNight(world.theme.night);
   effects.setRain(!!track.wet, world.theme.night);
+  sound.setRain(!!track.wet);
   headlight.intensity = world.theme.night || track.wet ? 90 : 0;
   renderer.toneMappingExposure = world.theme.night ? 1.25 : 1.0;
-  cur = { tr, track, world, quality: settings.quality, line: settings.racingLine, map: buildMinimap(track), cams: tvCameras(track, world.heightAt) };
+  cur = { tr, track, world, ck, cond, quality: settings.quality, line: settings.racingLine, map: buildMinimap(track), cams: tvCameras(track, world.heightAt) };
   // park the car on the grid
   const r = new Race(track, { spec: carDef.spec });
   placeCar(r.car);
@@ -317,7 +359,7 @@ function setTags(list) {
 // ---------- race state ----------
 let mode = 'menu'; // menu, race, paused, finished, replay, photo
 let race = null, bot = null, recorder = null, ghost = null, bestRun = null, watching = false;
-let sess = { kind: 'trial' }; // kind: trial, race, cup, daily
+let sess = { kind: 'trial' }; // kind: trial, race, cup, daily, quali (one lap before a race or cup round)
 let recordGhost = null, recordInfo = null, raceToken = 0;
 let drift = null, hints = null, rivalModels = [], prevRivals = [];
 const recordCache = new Map(); // board id -> promise of the world record ghost (this visit)
@@ -329,48 +371,190 @@ function loadRecord(tr) {
 }
 let acc = 0, prev = null, lastInput = { throttle: 0, brake: 0, steer: 0 };
 let camYaw = 0, camY = 0, shake = 0, lastGear = 1, wrongTime = 0, finishShown = 0;
+let posFlashUntil = 0, gapsAt = 0;
+
+/** The rain arrives: less grip from now on, and the AI drives to suit. */
+function startRain() {
+  sess.rain.started = true;
+  cur.track.wet = true;
+  effects.setRain(true, cur.world.theme.night);
+  headlight.intensity = 90;
+  if (race.field) for (const r of race.field.cars) r.bot.profile = speedProfile(cur.track, r.grip, r.car.P);
+  sound.setRain(true);
+  toast('<span style="color:#9cc8ff">RAIN! Less grip from here</span>', 2200);
+}
 let countText = '', countUntil = 0, deltaUntil = 0, toastUntil = 0, driftFlashUntil = 0, kerbRumbleAt = 0;
 
 const withRivals = () => sess.kind === 'race' || sess.kind === 'cup';
 
+// ---------- drift wallet and tuning ----------
+const wallet = () => Math.max(0, Math.round((save.earned || 0) - (save.spent || 0)));
+const kitsOf = (car = carDef.id) => save.kits[car] || [];
+/** Your car's physics with its tuning applied. */
+const playerSpec = () => (sess.kind === 'weekly' ? carDef.spec : tunedSpec(carDef.spec, save.setup[carDef.id], kitsOf())); // the weekly is stock cars only
+function buyKit(kit) {
+  const price = kitPrice(carDef.id, kit);
+  if (kitsOf().includes(kit) || wallet() < price) return;
+  save.spent = (save.spent || 0) + price;
+  save.kits[carDef.id] = [...kitsOf(), kit];
+  sound.click();
+  persist();
+  checkAchievements();
+  renderGarage();
+}
+function setTune(kit, v) {
+  save.setup[carDef.id] = { ...activeSetup(save.setup[carDef.id], ['gearing', 'balance', 'bias']), [kit]: Math.round(v * 10) / 10 };
+  persist();
+}
+function renderTuning() {
+  $('tuneCar').textContent = `${carDef.name}`;
+  const owned = kitsOf(), set = activeSetup(save.setup[carDef.id], owned);
+  $('tunePresets').innerHTML = owned.length ? '<span class="sub">Presets:</span>' + PRESETS.map((p) => `<button data-p="${p.id}">${p.name}</button>`).join('') : '';
+  for (const b of $('tunePresets').querySelectorAll('button')) b.addEventListener('click', () => {
+    const p = PRESETS.find((x) => x.id === b.dataset.p);
+    sound.click();
+    const next = { ...(save.setup[carDef.id] || {}) };
+    for (const k of owned) next[k] = p.setup[k];
+    save.setup[carDef.id] = next;
+    persist();
+    renderTuning();
+  });
+  $('tuneList').innerHTML = KITS.map((k) => {
+    const have = owned.includes(k.id), price = kitPrice(carDef.id, k.id);
+    const v = set[k.id];
+    return `<div class="kit${have ? '' : ' locked'}"><div class="kn">${k.name}${have ? `<span class="sub" data-v="${k.id}">${v === 0 ? 'Stock' : (v > 0 ? '+' : '') + v.toFixed(1)}</span>` : `<button data-buy="${k.id}" ${wallet() < price ? 'disabled' : ''}>Buy · ${fmtPts(price)} pts</button>`}</div>
+      <div class="kd">${k.desc}</div>
+      <div class="kr"><span>${k.low}</span><input type="range" min="-1" max="1" step="0.1" value="${v}" data-k="${k.id}" ${have ? '' : 'disabled'}><span>${k.high}</span></div></div>`;
+  }).join('');
+  for (const b of $('tuneList').querySelectorAll('[data-buy]')) b.addEventListener('click', () => buyKit(b.dataset.buy));
+  for (const r of $('tuneList').querySelectorAll('input[type=range]')) {
+    r.addEventListener('input', () => {
+      const v = Number(r.value);
+      setTune(r.dataset.k, v);
+      const lab = $('tuneList').querySelector(`[data-v="${r.dataset.k}"]`);
+      if (lab) lab.textContent = v === 0 ? 'Stock' : (v > 0 ? '+' : '') + v.toFixed(1);
+    });
+    r.addEventListener('keydown', (e) => e.stopPropagation());
+  }
+}
+let garageTab = 'gCar';
+for (const b of document.querySelectorAll('#garageTabs button')) b.addEventListener('click', () => { sound.click(); garageTab = b.dataset.tab; renderGarage(); });
+
+// ---------- starting grid and qualifying ----------
+let gridFor = null; // { tr, kind } waiting on the grid screen
+const qualiCache = new Map();
+function rivalQuali(tr) {
+  const key = `${tr.id}|${settings.aiLevel}|${carDef.id}`;
+  if (!qualiCache.has(key)) qualiCache.set(key, qualiTimes(trackData(tr), { level: settings.aiLevel, golds: tr.golds && tr.golds.gt ? tr.golds : null, playerCar: carDef.id, seed: typeof tr.id === 'number' ? tr.id : 1, simulate }));
+  return qualiCache.get(key);
+}
+function shuffledGrid() {
+  const order = [0, 1, 2, 3, 4, 5];
+  for (let i = 5; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  return { slots: order.slice(0, 5), playerSlot: order[5] };
+}
+/** Before a race against the AI: choose how the grid is set. */
+function openGrid(tr, kind) {
+  gridFor = { tr, kind, random: shuffledGrid() };
+  backTo = kind === 'cup' ? 'cups' : 'tracks';
+  showScreen('grid');
+}
+for (const b of document.querySelectorAll('#gridTabs button')) b.addEventListener('click', () => { sound.click(); settings.grid = b.dataset.grid; persist(); renderGrid(); });
+for (const b of document.querySelectorAll('#gridWeather button')) b.addEventListener('click', () => { sound.click(); settings.weather = b.dataset.w; persist(); renderGrid(); });
+for (const b of document.querySelectorAll('#gridTime button')) b.addEventListener('click', () => { sound.click(); settings.tod = b.dataset.t; persist(); renderGrid(); });
+for (const b of document.querySelectorAll('#gridLaps button')) b.addEventListener('click', () => { sound.click(); settings.laps = Number(b.dataset.laps); persist(); renderGrid(); });
+function gridRows(grid, times = null) {
+  const rows = RIVALS.map((r, k) => ({ slot: grid.slots[k], name: r.name, color: r.color, style: r.style, k }));
+  rows.push({ slot: grid.playerSlot, name: save.name, color: paintOf(save.paint).color, me: true });
+  rows.sort((a, b) => a.slot - b.slot);
+  const q = times || null;
+  return rows.map((r) => {
+    const car = r.me ? carDef.id : (q ? q[r.k].car : null);
+    const info = r.me ? carDef.name : `${r.style}${car ? ` · ${carById(car).name}` : ''}`;
+    const t = q ? (r.me ? q.mine : q[r.k].time) : null;
+    return `<div class="r${r.me ? ' me' : ''}"><span>${r.slot + 1}</span><span><span class="sw" style="background:${hex(r.color)}"></span>${esc(r.name)} <span class="l">${esc(info)}</span></span><span class="t">${t ? fmt(t) : ''}</span></div>`;
+  }).join('');
+}
+function renderGrid() {
+  const { tr, kind } = gridFor;
+  const mode = settings.grid;
+  for (const b of document.querySelectorAll('#gridTabs button')) b.classList.toggle('on', b.dataset.grid === mode);
+  for (const b of document.querySelectorAll('#gridLaps button')) b.classList.toggle('on', Number(b.dataset.laps) === settings.laps);
+  for (const b of document.querySelectorAll('#gridWeather button')) b.classList.toggle('on', b.dataset.w === (settings.weather || 'default'));
+  for (const b of document.querySelectorAll('#gridTime button')) b.classList.toggle('on', b.dataset.t === (settings.tod || 'day'));
+  $('gridTime').classList.toggle('hidden', !!THEMES[tr.theme].night); // Night City is always night
+  $('gridSub').textContent = `${typeof tr.id === 'number' ? `${tr.id}. ` : ''}${tr.name} · ${{ easy: 'Easy', normal: 'Normal', hard: 'Hard' }[settings.aiLevel]} AI${kind === 'cup' && save.cup ? ` · ${THEMES[save.cup.theme].name} Cup race ${save.cup.round + 1}` : ''}`;
+  if (mode === 'qualify') {
+    const q = rivalQuali(tr);
+    $('gridNote').textContent = 'Drive one lap on your own from a standing start. Your time decides where you start among the rivals\' times below.';
+    $('gridTable').innerHTML = q.slice().sort((a, b) => a.time - b.time).map((r) => `<div class="r"><span></span><span><span class="sw" style="background:${hex(RIVALS[r.k].color)}"></span>${esc(r.name)} <span class="l">${RIVALS[r.k].style} · ${carById(r.car).name}</span></span><span class="t">${fmt(r.time)}</span></div>`).join('');
+    $('btnGridGo').textContent = 'Start qualifying';
+  } else {
+    const grid = mode === 'random' ? gridFor.random : { slots: [0, 1, 2, 3, 4], playerSlot: 5 };
+    $('gridNote').textContent = mode === 'random' ? 'Everyone starts in a random place.' : 'You start at the back and fight your way through.';
+    $('gridTable').innerHTML = gridRows(grid, null);
+    $('btnGridGo').textContent = 'Start the race';
+  }
+}
+$('btnGridGo').addEventListener('click', () => {
+  sound.click();
+  const { tr, kind } = gridFor;
+  if (settings.grid === 'qualify') startRace(tr, { kind: 'quali', then: kind });
+  else startRace(tr, { kind, grid: settings.grid === 'random' ? gridFor.random : null });
+});
+
 function buildRivalModels() {
   for (const m of rivalModels) { scene.remove(m.root); m.dispose(); }
-  rivalModels = withRivals() ? RIVALS.map((r) => { const m = buildCar({ kind: carDef.model, color: r.color }); scene.add(m.root); return m; }) : [];
+  rivalModels = withRivals() && race && race.field ? race.field.cars.map((r) => { const m = buildCar({ kind: carById(r.carId).model, color: r.color }); scene.add(m.root); return m; }) : [];
   prevRivals = [];
 }
 
 /** Start a race. kind: 'trial' (time trial), 'race' (against the AI), 'cup' (a championship round), 'daily'. */
-function startRace(tr, { watch = false, kind = 'trial' } = {}) {
+function startRace(tr, { watch = false, kind = 'trial', grid = undefined, then = null } = {}) {
   if (!tr || !unlocked(tr)) return;
   sound.init();
   goFullscreen();
   input.centreTilt();
-  sess = { kind, tr };
-  loadTrack(tr);
+  // restarting the same race keeps its grid
+  if (grid === undefined) grid = sess && sess.tr === tr && sess.kind === kind ? sess.grid : null;
+  // the weekly tournament has everyone in the same car; otherwise your own
+  const wantCar = kind === 'weekly' ? tr.car : save.car || 'gt';
+  if (carDef.id !== wantCar) useCar(wantCar);
+  const fromEditor = !!(sess && sess.tr === tr && sess.fromEditor);
+  sess = { kind, tr, grid, fromEditor, then: kind === 'quali' ? then || (sess && sess.kind === 'quali' ? sess.then : 'race') : null };
+  // weather and time of day: chosen on the grid screen for races against the AI
+  const vsAI = kind === 'race' || kind === 'cup' || kind === 'quali';
+  sess.cond = vsAI ? { weather: kind === 'quali' && settings.weather === 'later' ? 'dry' : settings.weather || 'default', time: settings.tod || 'day' } : null;
+  loadTrack(tr, sess.cond);
   watching = (watch || BOT) && kind === 'trial';
-  const rivals = withRivals() ? { level: settings.aiLevel, seed: (sess.kind === 'cup' && save.cup ? save.cup.round : 0) + (typeof tr.id === 'number' ? tr.id : 1) } : null;
-  race = new Race(cur.track, { spec: carDef.spec, rivals, launch: !watching });
-  bot = watching ? new Bot(cur.track, 0.9, carDef.spec) : null;
+  const rivals = withRivals() ? { level: settings.aiLevel, seed: (sess.kind === 'cup' && save.cup ? save.cup.round : 0) + (typeof tr.id === 'number' ? tr.id : 1), golds: tr.golds && tr.golds.gt ? tr.golds : null, playerCar: carDef.id, ...(grid ? { slots: grid.slots, playerSlot: grid.playerSlot } : {}) } : null;
+  race = new Race(cur.track, { spec: playerSpec(), rivals, launch: !watching, laps: kind === 'quali' ? 1 : withRivals() ? settings.laps || 3 : undefined });
+  bot = watching ? new Bot(cur.track, 0.9, playerSpec()) : null;
+  // rain later: it starts somewhere between a third and two thirds of the way through
+  sess.rain = sess.cond && sess.cond.weather === 'later' ? { at: (tr.gold || 120) * (race.laps / 3) * (0.3 + Math.random() * 0.35), k: 0, started: false } : null;
   recorder = new GhostRecorder();
   drift = new DriftScore();
   hints = settings.hints && !watching && typeof tr.id === 'number' && tr.id <= 3 ? new Hints(cur.track, speedProfile(cur.track, 0.9, carDef.spec)) : null;
   bestRun = save.best[tr.id] || null;
   ghost = null; recordGhost = null; recordInfo = null;
   const token = ++raceToken;
-  const gm = withRivals() ? 'off' : settings.ghost;
+  const gm = withRivals() || sess.kind === 'quali' ? 'off' : settings.ghost;
   const g = gm === 'best' || gm === 'both' ? loadGhost(tr.id) : null;
-  if (g) { const f = decodeGhost(g.data); if (f && f.length > 6) ghost = new GhostPlayer(f, cur.track); }
+  if (g) { const f = decodeGhost(g.data); if (f && f.length > 6) { ghost = new GhostPlayer(f, cur.track); ghostAs('best', g.car || save.best[tr.id]?.car); } }
   if ((gm === 'record' || gm === 'both') && onlineEnabled) {
     loadRecord(tr).then((r) => {
       if (token !== raceToken || !r) return;
       const f = decodeGhost(r.data);
       if (!f || f.length <= 6) return;
       recordGhost = new GhostPlayer(f, cur.track);
+      ghostAs('record', r.car);
       recordInfo = r;
       setTarget();
     });
   }
+  carModel.setDamage(null);
   buildRivalModels();
+  sound.setRivals(race.field ? race.field.cars.map((r) => carById(r.carId).engine) : []);
   ghostModel.root.visible = false;
   recordModel.root.visible = false;
   if (typeof tr.id === 'number') save.last = tr.id;
@@ -384,13 +568,17 @@ function startRace(tr, { watch = false, kind = 'trial' } = {}) {
   $('hud').classList.remove('hidden');
   $('lapTotal').textContent = race.laps;
   $('posLine').classList.toggle('hidden', !withRivals());
+  $('gaps').classList.toggle('hidden', !withRivals());
+  $('gapAhead').innerHTML = ''; $('gapBehind').innerHTML = '';
   $('posTotal').textContent = race.allCars.length;
-  $('hint').textContent = watching ? 'AUTOPILOT · Esc to stop' : 'C reset car · R restart · V camera · Esc pause';
+  const kl = (id) => keyLabel(settings.keys[id] || KEY_ACTIONS.find((x) => x.id === id).canon);
+  $('hint').textContent = watching ? 'AUTOPILOT · Esc to stop' : `${kl('reset')} reset car · ${kl('restart')} restart · ${kl('camera')} camera · Esc pause`;
+  if (!TOUCH) $('ltKey').textContent = kl('gas');
   $('countdown').textContent = ''; $('countdown').className = '';
   $('delta').className = 'mono';
   $('driftTotal').classList.add('hidden');
   setTarget();
-  music.play('race');
+  music.play('race', cur.tr.theme);
 }
 
 function setTarget() {
@@ -402,9 +590,14 @@ function setTarget() {
       : `Race · ${lvl} AI${save.raceBest[tr.id] ? ` · Best finish ${ordinal(save.raceBest[tr.id])}` : ''}`;
     return;
   }
-  const best = bestRun?.time;
-  const times = medalTimes(tr);
-  const have = medalFor(tr, best);
+  if (sess.kind === 'quali') {
+    const q = rivalQuali(tr).map((r) => r.time).sort((a, b) => a - b);
+    $('target').innerHTML = `Qualifying · one lap · pole needs ${fmt(q[0])}`;
+    return;
+  }
+  const best = carBestOf(tr) || null;
+  const times = medalTimes(tr, carDef.id);
+  const have = medalFor(tr, best, carDef.id);
   const next = have ? times[times.findIndex((m) => m.id === have.id) - 1] : times[2];
   const dot = (m) => `<span class="medal" style="background:${medalColor[m.id]}"></span>`;
   $('target').innerHTML = (isDaily(tr) ? `${esc(tr.name)} · ` : '') + (next
@@ -442,7 +635,8 @@ function showDelta(n) {
     const d = race.splits[n - 1] - best;
     text = `${d <= 0 ? '−' : '+'}${Math.abs(d).toFixed(3)}`;
   } else text = `S${((n - 1) % 3) + 1} ${st.toFixed(3)}`;
-  $('delta').textContent = text;
+  // colour-blind friendly: a symbol as well as the colour
+  $('delta').textContent = settings.colorBlind ? `${{ purple: '◆', green: '▲', yellow: '▼' }[col] || ''} ${text}` : text;
   $('delta').className = `mono show ${col}`;
   deltaUntil = performance.now() + 3000;
   sound.sector(col !== 'yellow');
@@ -474,6 +668,17 @@ function handleEvents() {
       const pb = !save.bestLap[id] || e.time < save.bestLap[id];
       toast(`${e.lap === race.laps - 1 ? 'FINAL LAP' : `LAP ${e.lap + 1}`}${pb && !watching ? ' · <span style="color:var(--green)">BEST LAP</span>' : ''}`);
       if (pb && !watching) save.bestLap[id] = e.time;
+    } else if (e.type === 'overtake') {
+      if (race.state === 'racing' && race.time > 1) {
+        const up = e.to < e.from;
+        const f = $('posFlash');
+        f.textContent = `P${e.to} ${up ? '▲' : '▼'}`;
+        f.className = `show ${up ? 'up' : 'down'}`;
+        posFlashUntil = performance.now() + 1100;
+        if (up) sound.click();
+      }
+    } else if (e.type === 'mistake') {
+      if (race.state === 'racing' && performance.now() > toastUntil) toast(`<span style="color:var(--muted)">${esc(e.name)} ${{ late: 'braked too late!', wide: 'ran wide!', lift: 'lost momentum' }[e.kind]}</span>`, 1500);
     } else if (e.type === 'finish') onFinish();
     else if (e.type === 'recover') toast('Car reset', 900);
   }
@@ -507,24 +712,54 @@ function resultsTable() {
   });
 }
 
+let banked = 0;
+function finishQuali() {
+  const tr = cur.tr, time = race.time, q = rivalQuali(tr);
+  const grid = gridFromQuali(q, time);
+  sess.qualiGrid = grid;
+  sound.finish(grid.playerSlot < 3);
+  $('finTitle').textContent = 'QUALIFYING';
+  $('finMedal').innerHTML = `<div class="medalbig ${grid.playerSlot === 0 ? 'gold' : grid.playerSlot === 1 ? 'silver' : grid.playerSlot === 2 ? 'bronze' : ''}">${grid.playerSlot === 0 ? 'POLE' : `P${grid.playerSlot + 1}`}</div>`;
+  $('finTime').textContent = fmt(time);
+  $('finNote').innerHTML = grid.playerSlot === 0 ? '<span class="pb">Pole position!</span> You start at the front.' : `You start ${ordinal(grid.playerSlot + 1)} on the grid.`;
+  $('finLaps').innerHTML = '';
+  $('finSectors').innerHTML = '';
+  $('finDrift').innerHTML = banked ? `<span style="color:var(--gold)">+${fmtPts(banked)} drift points to your wallet (${fmtPts(wallet())})</span>` : '';
+  $('finUnlock').innerHTML = '';
+  $('finOnline').textContent = '';
+  $('finTable').innerHTML = gridRows(grid, Object.assign(q.slice(), { mine: time }));
+  $('btnNext').disabled = false;
+  $('btnNext').innerHTML = `Start the race <kbd>N</kbd>`;
+  $('btnRetry').classList.remove('hidden');
+}
+
 function onFinish() {
   const tr = cur.tr, time = race.time, kind = sess.kind;
   mode = 'finished';
   finishShown = performance.now() + 1300;
   drift.finish();
   driftEvents();
+  // bank the drift points into the wallet (spent in the garage on tuning)
+  banked = watching ? 0 : Math.round(drift.total);
+  if (banked > 0) { save.earned = (save.earned || 0) + banked; persist(); }
+  if (kind === 'quali') { finishQuali(); return; }
   const prevBest = save.best[tr.id];
-  const timed = kind === 'trial' || kind === 'daily';
+  const timed = kind === 'trial' || kind === 'daily' || kind === 'weekly';
   const pb = timed && (!prevBest || time < prevBest.time - 1e-6);
-  const medal = timed ? medalFor(tr, time) : null;
+  const medal = timed ? medalFor(tr, time, carDef.id) : null;
+  const prevCar = carBestOf(tr);
   const position = withRivals() ? race.position : 0;
   const before = PAINTS.filter((p) => paintUnlocked(p.id)).map((p) => p.id);
   const carsBefore = CARS.filter((c) => carUnlocked(c.id)).map((c) => c.id);
   let unlockMsg = '';
   if (!watching) {
+    if (timed) {
+      if (!prevCar || time < prevCar) save.carBest[tr.id] = { ...(save.carBest[tr.id] || {}), [carDef.id]: time };
+      if (medal && typeof tr.id === 'number' && (MEDAL_RANK[medal.id] > (MEDAL_RANK[save.medals[tr.id]] || 0))) save.medals[tr.id] = medal.id;
+    }
     if (pb) {
-      save.best[tr.id] = { time, splits: race.splits.map((s) => Math.round(s * 1000) / 1000), laps: race.lapTimes.map((s) => Math.round(s * 1000) / 1000) };
-      storeGhost(tr.id, { time, data: encodeGhost(recorder.frames) });
+      save.best[tr.id] = { car: carDef.id, time, splits: race.splits.map((s) => Math.round(s * 1000) / 1000), laps: race.lapTimes.map((s) => Math.round(s * 1000) / 1000) };
+      storeGhost(tr.id, { time, data: encodeGhost(recorder.frames), car: carDef.id });
     }
     const lap = race.bestLap;
     if (!save.bestLap[tr.id] || lap < save.bestLap[tr.id]) save.bestLap[tr.id] = lap;
@@ -539,6 +774,16 @@ function onFinish() {
     }
     if (race.wallHits === 0 && race.grassTime < 0.05 && race.resets === 0) award('clean');
     if (kind === 'daily') save.daily = bumpStreak(save.daily, tr.key);
+    // weekly prize: drift points for each better medal this week
+    if (kind === 'weekly' && medal) {
+      const paid = save.weekly.key === tr.key ? save.weekly.paid || 0 : 0;
+      const prize = WEEKLY_PRIZE[medal.id] - paid;
+      if (prize > 0) {
+        save.earned = (save.earned || 0) + prize;
+        save.weekly = { key: tr.key, paid: WEEKLY_PRIZE[medal.id] };
+        unlockMsg += `${unlockMsg ? '<br>' : ''}Weekly prize: +${fmtPts(prize)} drift points`;
+      }
+    }
     if (kind === 'cup' && save.cup) cupScoreRound();
     checkAchievements();
     const fresh = PAINTS.filter((p) => paintUnlocked(p.id) && !before.includes(p.id));
@@ -559,13 +804,15 @@ function onFinish() {
   $('finTime').textContent = fmt(time);
   let note = '';
   if (timed) {
-    const times = medalTimes(tr);
+    const times = medalTimes(tr, carDef.id);
     const nextMedal = medal ? times[times.findIndex((m) => m.id === medal.id) - 1] : times[2];
     if (!watching && pb && prevBest) note = `<span class="pb">New best!</span> ${(prevBest.time - time).toFixed(3)}s faster`;
     else if (!watching && pb) note = '<span class="pb">First finish!</span>';
+    else if (!watching && (!prevCar || time < prevCar)) note = `<span class="pb">Best in the ${esc(carDef.name)}!</span>${prevBest ? ` Overall best ${fmt(prevBest.time)}` : ''}`;
     else if (prevBest) note = `Best ${fmt(prevBest.time)} (+${(time - prevBest.time).toFixed(3)})`;
-    if (nextMedal) note += `${note ? ' · ' : ''}${nextMedal.name} needs ${fmt(nextMedal.time)}`;
+    if (nextMedal) note += `${note ? ' · ' : ''}${nextMedal.name} in the ${esc(carDef.name)} needs ${fmt(nextMedal.time)}`;
     if (kind === 'daily' && !watching) note += ` · Daily streak ${save.daily.streak || 1}`;
+    if (kind === 'weekly' && !watching && !medal) note += ` · Bronze wins ${fmtPts(WEEKLY_PRIZE.bronze)} drift points`;
   }
   $('finNote').innerHTML = note;
   const bestLap = Math.min(...race.lapTimes);
@@ -575,10 +822,10 @@ function onFinish() {
   $('finTable').innerHTML = withRivals()
     ? resultsTable().map((r) => `<div class="r${r.me ? ' me' : ''}"><span>${r.pos}</span><span><span class="sw" style="background:${hex(r.color)}"></span>${esc(r.name)}</span><span class="t">${r.est ? '~' : ''}${fmt(r.time)}</span></div>`).join('')
     : '';
-  $('finDrift').innerHTML = drift.total > 0 ? `Drift score <b>${fmtPts(drift.total)}</b> · best drift ${fmtPts(drift.best)}` : '';
+  $('finDrift').innerHTML = drift.total > 0 ? `Drift score <b>${fmtPts(drift.total)}</b> · best drift ${fmtPts(drift.best)}${banked ? ` · <span style="color:var(--gold)">+${fmtPts(banked)} to your wallet (${fmtPts(wallet())})</span>` : ''}` : '';
   $('finUnlock').innerHTML = unlockMsg;
   $('finOnline').textContent = '';
-  if (!watching && timed && onlineEnabled) {
+  if (!watching && timed && onlineEnabled && (!tr.community || tr.published)) {
     $('finOnline').textContent = 'Sending your time to the leaderboard…';
     const data = encodeGhost(recorder.frames);
     const mine = raceToken;
@@ -593,20 +840,24 @@ function onFinish() {
   // next button: next track, cup standings, or none for the daily
   const next = typeof tr.id === 'number' ? TRACKS[tr.id] : null;
   if (kind === 'cup') { $('btnNext').disabled = false; $('btnNext').innerHTML = 'Standings <kbd>N</kbd>'; }
-  else { $('btnNext').disabled = !next || !unlocked(next) || kind === 'daily'; $('btnNext').innerHTML = 'Next track <kbd>N</kbd>'; }
+  else if (tr.community) { $('btnNext').disabled = false; $('btnNext').innerHTML = `${sess.fromEditor ? 'Back to editor' : 'Community'} <kbd>N</kbd>`; }
+  else { $('btnNext').disabled = !next || !unlocked(next) || kind === 'daily' || kind === 'weekly'; $('btnNext').innerHTML = 'Next track <kbd>N</kbd>'; }
   $('btnRetry').classList.toggle('hidden', kind === 'cup');
 }
 
 function nextAfterFinish() {
   if (sess.kind === 'cup') { showStandings(); return; }
+  if (sess.kind === 'quali') { startRace(cur.tr, { kind: sess.then, grid: sess.qualiGrid }); return; }
+  if (sess.kind === 'race') { const n2 = typeof cur.tr.id === 'number' ? TRACKS[cur.tr.id] : null; if (n2) openGrid(n2, 'race'); return; }
+  if (cur.tr.community) { exitToMenu(); if (sess.fromEditor && edDef) openEditor(edDef); else { trackMode = 'community'; backTo = 'menu'; showScreen('tracks'); } return; }
   const n = typeof cur.tr.id === 'number' ? TRACKS[cur.tr.id] : null;
-  if (n && unlocked(n) && sess.kind !== 'daily') startRace(n, { watch: watching, kind: sess.kind });
+  if (n && unlocked(n) && sess.kind !== 'daily' && sess.kind !== 'weekly') startRace(n, { watch: watching, kind: sess.kind });
 }
 
 function clearRaceView() {
   ghostModel.root.visible = false;
   recordModel.root.visible = false;
-  for (const m of rivalModels) m.root.visible = false;
+  for (const m of rivalModels) { m.root.visible = false; m.mirror = false; }
   setTags([]);
   $('hud').classList.add('hidden');
   $('replayHud').classList.add('hidden');
@@ -614,6 +865,8 @@ function clearRaceView() {
   $('mirrorFrame').classList.add('hidden');
 }
 function exitToMenu() {
+  carModel.setDamage(null);
+  if (carDef.id !== (save.car || 'gt')) useCar(save.car || 'gt'); // after the weekly's set car
   mode = 'menu';
   $('rotate').classList.add('hidden');
   race = null;
@@ -634,7 +887,7 @@ function startCup(theme) {
   for (const r of RIVALS) points[r.name] = 0;
   save.cup = { theme, round: 0, points };
   persist();
-  startRace(cupTracks(theme)[0], { kind: 'cup' });
+  openGrid(cupTracks(theme)[0], 'cup');
 }
 function cupScoreRound() {
   const c = save.cup;
@@ -688,7 +941,7 @@ function renderCups() {
     b.addEventListener('click', () => {
       if (!open) return;
       sound.click();
-      if (inProgress) startRace(cupTracks(theme)[save.cup.round], { kind: 'cup' });
+      if (inProgress) openGrid(cupTracks(theme)[save.cup.round], 'cup');
       else startCup(theme);
     });
     list.appendChild(b);
@@ -702,6 +955,20 @@ function todaysDaily() {
   if (def && !save.dailyCache[key]) { save.dailyCache = { [key]: { seed: def.seed, gold: def.gold } }; persist(); }
   return def;
 }
+function thisWeek() {
+  const key = weekKey();
+  const def = weeklyDef(key, save.weeklyCache[key]);
+  if (def && !save.weeklyCache[key]) { save.weeklyCache = { [key]: { seed: def.seed, gold: def.gold } }; persist(); }
+  return def;
+}
+function refreshWeeklyButton() {
+  const def = thisWeek();
+  if (!def) { $('weeklySub').textContent = 'Not available this week'; return; }
+  const ms = msToNextWeek(), d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000);
+  const best = save.best[def.id];
+  const m = best ? medalFor(def, best.time, def.car) : null;
+  $('weeklySub').textContent = `${carById(def.car).name} only · ${THEMES[def.theme].name}${def.wet ? ' · rain' : ''} · ${best ? `best ${fmt(best.time)}${m ? ` (${m.name})` : ''}` : 'not raced'} · ends in ${d}d ${h}h`;
+}
 function refreshDailyButton() {
   const def = todaysDaily();
   if (!def) { $('dailySub').textContent = 'Not available today'; return; }
@@ -713,7 +980,7 @@ function refreshDailyButton() {
 }
 
 // ---------- screens ----------
-const SCREENS = ['menu', 'tracks', 'garage', 'boards', 'stats', 'settings', 'controls', 'pause', 'finish', 'cups', 'standings'];
+const SCREENS = ['menu', 'tracks', 'garage', 'boards', 'stats', 'settings', 'controls', 'pause', 'finish', 'cups', 'standings', 'grid', 'editor'];
 let backTo = 'menu';
 function showScreen(id) {
   for (const s of SCREENS) $(s).classList.toggle('hidden', s !== id);
@@ -724,11 +991,13 @@ function showScreen(id) {
   if (id === 'boards') renderBoards();
   if (id === 'settings') loadSettingsUI();
   if (id === 'cups') renderCups();
+  if (id === 'grid') renderGrid();
+  if (id === 'controls') renderKeys();
 }
 for (const b of document.querySelectorAll('.back')) b.addEventListener('click', () => { sound.click(); showScreen(backTo); });
 
 function nextTrack() {
-  const firstNoMedal = TRACKS.find((tr) => unlocked(tr) && !medalFor(tr, save.best[tr.id]?.time));
+  const firstNoMedal = TRACKS.find((tr) => unlocked(tr) && !medalOf(tr));
   return firstNoMedal || TRACKS.find((t) => t.id === save.last) || TRACKS[0];
 }
 
@@ -739,9 +1008,10 @@ function refreshMenu() {
   $('nextBest').textContent = save.best[tr.id] ? `Best ${fmt(save.best[tr.id].time)}` : THEMES[tr.theme].name;
   const c = medalCounts();
   let b = 0;
-  for (const tr2 of TRACKS) if (medalFor(tr2, save.best[tr2.id]?.time)?.id === 'bronze') b++;
-  $('medalTotals').innerHTML = `<span><span class="dot gold"></span><b>${c.gold}</b></span><span><span class="dot silver"></span><b>${c.silver - c.gold}</b></span><span><span class="dot bronze"></span><b>${b}</b></span><span>${TRACKS.filter((t) => save.best[t.id]).length}/${TRACKS.length} tracks finished</span>`;
+  for (const tr2 of TRACKS) if (medalOf(tr2)?.id === 'bronze') b++;
+  $('medalTotals').innerHTML = `<span><span class="dot gold"></span><b>${c.gold}</b></span><span><span class="dot silver"></span><b>${c.silver - c.gold}</b></span><span><span class="dot bronze"></span><b>${b}</b></span><span>${TRACKS.filter((t) => save.best[t.id]).length}/${TRACKS.length} tracks finished</span><span class="wallet">${fmtPts(wallet())} drift pts</span>`;
   refreshDailyButton();
+  refreshWeeklyButton();
   checkAchievements();
 }
 
@@ -749,6 +1019,7 @@ let trackMode = 'trial';
 for (const b of document.querySelectorAll('#trackTabs button')) b.addEventListener('click', () => { sound.click(); trackMode = b.dataset.mode; renderTracks(); });
 function renderTracks() {
   for (const b of document.querySelectorAll('#trackTabs button')) b.classList.toggle('on', b.dataset.mode === trackMode);
+  if (trackMode === 'community') { renderCommunity(); return; }
   $('aiNote').textContent = trackMode === 'race' ? `Five AI rivals (${settings.aiLevel}; change it in Settings). Finish in the top three for a podium.` : '';
   const list = $('trackList');
   list.innerHTML = '';
@@ -760,29 +1031,186 @@ function renderTracks() {
     const cards = document.createElement('div');
     cards.className = 'cards';
     for (const tr of TRACKS.filter((t) => t.theme === theme)) {
-      const best = save.best[tr.id], rb = save.raceBest[tr.id];
-      const m = trackMode === 'race' ? (rb && rb <= 3 ? { id: ['gold', 'silver', 'bronze'][rb - 1] } : null) : medalFor(tr, best?.time);
+      const best = carBestOf(tr), rb = save.raceBest[tr.id];
+      const m = trackMode === 'race' ? (rb && rb <= 3 ? { id: ['gold', 'silver', 'bronze'][rb - 1] } : null) : medalFor(tr, best, carDef.id);
       const len = trackData(tr).L;
       const b = document.createElement('button');
       b.className = `card${unlocked(tr) ? '' : ' locked'}`;
-      const status = trackMode === 'race' ? (rb ? `Best finish ${ordinal(rb)}` : 'Not raced') : (best ? fmt(best.time) : 'Not raced');
+      const status = trackMode === 'race' ? (rb ? `Best finish ${ordinal(rb)}` : 'Not raced') : (best ? fmt(best) : 'Not raced');
       b.innerHTML = `<span class="stripe" style="background:#${new THREE.Color(th.skyTop).getHexString()}"></span>
         <span class="num">${tr.id}</span><span class="nm">${tr.name}</span>
         <span class="meta">${(len / 1000).toFixed(2)} km · 3 laps${tr.wet ? ' · rain' : ''}</span>
         <span class="bt">${unlocked(tr) ? status : '🔒 Locked'}</span>
         ${m ? `<span class="md" style="background:${medalColor[m.id]}"></span>` : ''}`;
-      b.title = medalTimes(tr).map((x) => `${x.name} ${fmt(x.time)}`).join('\n');
-      b.addEventListener('click', () => { if (unlocked(tr)) { sound.click(); startRace(tr, { kind: trackMode }); } });
+      b.title = `${carDef.name}:\n` + medalTimes(tr, carDef.id).map((x) => `${x.name} ${fmt(x.time)}`).join('\n');
+      b.addEventListener('click', () => { if (!unlocked(tr)) return; sound.click(); if (trackMode === 'race') openGrid(tr, 'race'); else startRace(tr, { kind: trackMode }); });
       cards.appendChild(b);
     }
     block.appendChild(cards);
     list.appendChild(block);
   }
   const c = medalCounts();
-  $('trackTotals').textContent = `${c.gold} gold · ${c.any} medals of ${TRACKS.length}`;
+  let cg = 0;
+  for (const tr of TRACKS) if (medalFor(tr, carBestOf(tr), carDef.id)?.id === 'gold') cg++;
+  $('trackTotals').textContent = trackMode === 'race' ? `${c.gold} gold · ${c.any} medals of ${TRACKS.length}` : `Medals for the ${carDef.name} (change car in the Garage) · ${cg} gold in this car · ${c.gold} gold in any car`;
 }
 
+// ---------- community circuits and the track editor ----------
+let myTracks = loadMyTracks(), commOrder = 'new', commToken = 0;
+const liked = new Set((() => { try { return JSON.parse(localStorage.getItem('redline-liked') || '[]'); } catch { return []; } })());
+const saveMine = () => storeMyTracks(myTracks);
+/** A community circuit card (a div, so it can hold its own small buttons). */
+function commCard(tr, { mine = false, def = null } = {}) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.tabIndex = 0;
+  const best = save.best[tr.id];
+  const b = buildCustom(tr);
+  const len = b.track ? `${(b.track.L / 1000).toFixed(2)} km` : 'needs fixing';
+  const m = best && tr.gold ? medalFor(tr, best.time) : null;
+  el.innerHTML = `<span class="stripe" style="background:#${new THREE.Color(THEMES[tr.theme].skyTop).getHexString()}"></span>
+    <span class="nm">${esc(tr.name)}</span><span class="meta">${len} · ${THEMES[tr.theme].name}${tr.author ? ` · by ${esc(tr.author)}` : ''}</span>
+    <span class="bt">${best ? fmt(best.time) : mine ? (tr.published ? 'Published' : tr.gold ? 'Checked, not published' : 'Not checked yet') : 'Not raced'}</span>
+    ${m ? `<span class="md" style="background:${medalColor[m.id]}"></span>` : ''}
+    ${mine ? '<button class="ed">Edit</button>' : ''}
+    ${tr.published && !mine ? `<button class="like"${liked.has(tr.cid) ? ' disabled' : ''}>👍 ${tr.likes || 0}</button>` : ''}`;
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.ed')) { sound.click(); openEditor(def); return; }
+    if (e.target.closest('.like')) {
+      const btn = e.target.closest('.like');
+      sound.click();
+      btn.disabled = true;
+      likeTrack(tr.cid).then((n) => { btn.textContent = `👍 ${n}`; liked.add(tr.cid); try { localStorage.setItem('redline-liked', JSON.stringify([...liked])); } catch { /* fine */ } })
+        .catch(() => { btn.textContent = '👍 ?'; });
+      return;
+    }
+    if (!b.track) { toast('This circuit needs fixing in the editor first'); return; }
+    sound.click();
+    startRace(tr, { kind: 'trial' });
+  });
+  return el;
+}
+function renderCommunity() {
+  $('aiNote').textContent = '';
+  const list = $('trackList');
+  list.innerHTML = '';
+  const block = (title, sub) => {
+    const d = document.createElement('div');
+    d.className = 'theme-block';
+    d.innerHTML = `<div class="theme-head"><h3>${title}</h3><span class="sub">${sub}</span></div>`;
+    const cards = document.createElement('div');
+    cards.className = 'cards';
+    d.appendChild(cards);
+    list.appendChild(d);
+    return { d, cards };
+  };
+  const mine = block('Your circuits', 'Draw your own in the editor, test it, then publish it for everyone.');
+  const nb = document.createElement('button');
+  nb.className = 'card';
+  nb.innerHTML = '<span class="nm">+ New circuit</span><span class="meta">Open the track editor</span>';
+  nb.addEventListener('click', () => { sound.click(); openEditor(null); });
+  mine.cards.appendChild(nb);
+  for (const def of myTracks) mine.cards.appendChild(commCard(customTrack(def), { mine: true, def }));
+  const shared = block('Shared by players', '');
+  const tabs = document.createElement('div');
+  tabs.className = 'tabs';
+  tabs.innerHTML = `<button data-o="new" class="${commOrder === 'new' ? 'on' : ''}">Newest</button><button data-o="top" class="${commOrder === 'top' ? 'on' : ''}">Most liked</button>`;
+  shared.d.insertBefore(tabs, shared.cards);
+  for (const b of tabs.querySelectorAll('button')) b.addEventListener('click', () => { sound.click(); commOrder = b.dataset.o; renderCommunity(); });
+  if (!onlineEnabled) { shared.cards.innerHTML = '<div class="sub">Online is switched off.</div>'; return; }
+  shared.cards.innerHTML = '<div class="sub">Loading…</div>';
+  const token = ++commToken;
+  listCommunity(commOrder).then((rows) => {
+    if (token !== commToken) return;
+    shared.cards.innerHTML = rows.length ? '' : '<div class="sub">No shared circuits yet. Be the first!</div>';
+    for (const r of rows) {
+      const pts = decodePts(r.pts);
+      if (!pts) continue;
+      shared.cards.appendChild(commCard(customTrack({ ...r, pts, published: true }), { mine: r.mine }));
+    }
+  }).catch(() => { if (token === commToken) shared.cards.innerHTML = '<div class="sub">Couldn\'t reach the server. Check your connection.</div>'; });
+  $('trackTotals').textContent = `${myTracks.length} of your own`;
+}
+
+let editor = null, edDef = null;
+function openEditor(def) {
+  if (!def) {
+    def = { id: newTrackId(), name: `Circuit ${myTracks.length + 1}`, theme: 'meadow', width: 'normal', hills: 0.4, pts: starterPts(), gold: 0, published: false };
+    myTracks.unshift(def);
+    saveMine();
+  }
+  edDef = def;
+  backTo = 'tracks';
+  trackMode = 'community';
+  showScreen('editor');
+  if (!editor) editor = new Editor($('edCanvas'), (done) => { if (done) edChanged(); });
+  $('edName').value = def.name; $('edTheme').value = def.theme; $('edWidth').value = def.width; $('edHills').value = def.hills;
+  requestAnimationFrame(() => editor.open(def));
+}
+/** Something about the circuit changed: a published one becomes a new, unpublished copy. */
+function edDirty() {
+  if (edDef.published) {
+    const copy = { ...edDef, pts: edDef.pts.map((p) => p.slice()), id: newTrackId(), published: false, name: edDef.name };
+    myTracks.unshift(copy);
+    edDef = copy;
+    editor.def = copy;
+  }
+  edDef.gold = 0;
+}
+function edChanged() {
+  if (edDef.published && edDef.gold === 0) edDirty();
+  saveMine();
+  const r = editor.result;
+  const len = r && r.track ? `${(r.track.L / 1000).toFixed(2)} km lap · ${edDef.pts.length} points` : '';
+  $('edStatus').innerHTML = r && r.track
+    ? `<span class="ok">${len}</span>${edDef.published ? ' · <b>Published</b>' : edDef.gold ? ` · gold ${fmt(edDef.gold)} · ready to publish` : ' · run the autopilot check before publishing'}`
+    : `<span class="bad">${esc((r && r.why) || '')}</span>`;
+  $('edPublish').disabled = !edDef.gold || edDef.published || !onlineEnabled;
+  $('edTest').disabled = !(r && r.track);
+  $('edCheck').disabled = !(r && r.track) || !!edDef.gold;
+}
+for (const [id, key, num] of [['edName', 'name'], ['edTheme', 'theme'], ['edWidth', 'width'], ['edHills', 'hills', true]]) {
+  $(id).addEventListener(id === 'edName' ? 'change' : 'input', () => {
+    if (!edDef) return;
+    const v = num ? Number($(id).value) : id === 'edName' ? cleanName($(id).value) || 'Untitled' : $(id).value;
+    if (edDef.published) edDirty();
+    edDef[key] = v;
+    if (key === 'width' || key === 'hills') edDef.gold = 0;
+    editor.rebuild();
+  });
+  $(id).addEventListener('keydown', (e) => e.stopPropagation());
+}
+$('edFit').addEventListener('click', () => { sound.click(); editor.fit(); editor.draw(); });
+$('edNew').addEventListener('click', () => { sound.click(); openEditor(null); });
+$('edCheck').addEventListener('click', () => {
+  sound.click();
+  $('edStatus').textContent = 'The autopilot is driving three laps…';
+  setTimeout(() => {
+    const c = checkCustom(customTrack(edDef));
+    if (c.ok) edDef.gold = c.gold;
+    edChanged();
+    if (!c.ok) $('edStatus').innerHTML = `<span class="bad">${esc(c.why)}</span>`;
+  }, 30);
+});
+$('edTest').addEventListener('click', () => { sound.click(); saveMine(); startRace(customTrack(edDef), { kind: 'trial' }); sess.fromEditor = true; });
+$('edPublish').addEventListener('click', () => {
+  sound.click();
+  if (!edDef.gold) return;
+  $('edStatus').textContent = 'Publishing…';
+  publishTrack({ ...edDef, ptsText: encodePts(edDef.pts) }, save.name).then(() => {
+    edDef.published = true;
+    saveMine();
+    edChanged();
+    toast('Published! Everyone can race it now.');
+  }).catch(() => { $('edStatus').innerHTML = '<span class="bad">Couldn\'t publish. Check your connection and try again.</span>'; });
+});
+addEventListener('resize', () => { if (editor && !$('editor').classList.contains('hidden')) editor.resize(); });
+
 function renderGarage() {
+  for (const b of document.querySelectorAll('#garageTabs button')) b.classList.toggle('on', b.dataset.tab === garageTab);
+  for (const id of ['gCar', 'gTune', 'gPaint']) $(id).classList.toggle('hidden', id !== garageTab);
+  $('walletG').textContent = `Wallet: ${fmtPts(wallet())} drift pts`;
+  renderTuning();
   const c = medalCounts();
   const cars = $('carList');
   cars.innerHTML = '';
@@ -824,20 +1252,27 @@ function renderGarage() {
   }
 }
 
-// leaderboards: index 0 = today's daily challenge, 1..24 = the circuits
-let boardTrack = 1, boardToken = 0, boardDef = null;
+// leaderboards: index 0 = today's daily challenge, 1..30 = the circuits; each
+// has an overall board and one per car
+// the boards, in order: today's daily, this week's tournament, then the 30 circuits
+let boardTrack = 2, boardToken = 0, boardDef = null, boardCar = '';
+const boardCount = () => TRACKS.length + 2;
+const boardAt = (k) => (k === 0 ? todaysDaily() : k === 1 ? thisWeek() : TRACKS[k - 2]);
+for (const b of document.querySelectorAll('#boardCars button')) b.addEventListener('click', () => { sound.click(); boardCar = b.dataset.car; renderBoards(); });
 function renderBoards() {
+  for (const b of document.querySelectorAll('#boardCars button')) b.classList.toggle('on', b.dataset.car === boardCar);
   $('nameInput').value = save.name;
-  const tr = boardTrack === 0 ? todaysDaily() : TRACKS[boardTrack - 1];
+  const tr = boardAt(boardTrack);
   boardDef = tr;
   if (!tr) return;
-  $('boardTitle').innerHTML = `${isDaily(tr) ? '' : `${tr.id}. `}${esc(tr.name)}<span class="sub">${THEMES[tr.theme].name}${tr.wet ? ' · rain' : ''} · your best here ${fmtShort(save.best[tr.id]?.time)}</span>`;
+  $('boardTitle').innerHTML = `${isDaily(tr) ? '' : `${tr.id}. `}${esc(tr.name)}<span class="sub">${THEMES[tr.theme].name}${tr.wet ? ' · rain' : ''} · your best here ${fmtShort(boardCar ? save.carBest[tr.id]?.[boardCar] : save.best[tr.id]?.time)}${boardCar ? ` in the ${carById(boardCar).name}` : ''}</span>`;
   $('boardMe').textContent = '';
   $('btnWatchWR').classList.add('hidden');
   if (!onlineEnabled) { $('boardList').innerHTML = '<div class="sub">Online leaderboards are switched off.</div>'; return; }
   $('boardList').innerHTML = '<div class="sub">Loading…</div>';
   const token = ++boardToken;
-  Promise.all([getLeaderboard(tr.id, 10), getMyRank(tr.id)]).then(([rows, me]) => {
+  const car = boardCar || null;
+  Promise.all([getLeaderboard(tr.id, 10, car), getMyRank(tr.id, car)]).then(([rows, me]) => {
     if (token !== boardToken) return;
     $('boardList').innerHTML = rows.length
       ? rows.map((r, k) => `<div class="r${r.me ? ' me' : ''}"><span>#${k + 1}</span><span>${esc(r.name)}${r.me ? ' (you)' : ''}</span><span class="l">${carById(r.car).name} · best lap ${fmt(r.lap)}</span><span class="t">${fmt(r.time)}</span></div>`).join('')
@@ -846,8 +1281,8 @@ function renderBoards() {
     $('btnWatchWR').classList.toggle('hidden', !rows.length);
   }).catch((e) => { window.__lastBoardError = String(e); if (token === boardToken) $('boardList').innerHTML = '<div class="sub">Couldn\'t reach the leaderboard. Check your connection and try again.</div>'; });
 }
-$('boardPrev').addEventListener('click', () => { boardTrack = (boardTrack + TRACKS.length) % (TRACKS.length + 1); renderBoards(); });
-$('boardNext').addEventListener('click', () => { boardTrack = (boardTrack + 1) % (TRACKS.length + 1); renderBoards(); });
+$('boardPrev').addEventListener('click', () => { boardTrack = (boardTrack + boardCount() - 1) % boardCount(); renderBoards(); });
+$('boardNext').addEventListener('click', () => { boardTrack = (boardTrack + 1) % boardCount(); renderBoards(); });
 $('nameInput').addEventListener('change', (e) => {
   save.name = cleanName(e.target.value);
   save.profileAt = Date.now();
@@ -859,10 +1294,10 @@ $('btnWatchWR').addEventListener('click', () => {
   sound.click();
   const tr = boardDef;
   $('btnWatchWR').textContent = 'Loading…';
-  getRecordGhost(tr.id).then((r) => {
+  getRecordGhost(tr.id, boardCar || null).then((r) => {
     $('btnWatchWR').textContent = 'Watch the world record';
     const f = r && decodeGhost(r.data);
-    if (f && f.length > 6) startReplay(tr, f, `World record · ${r.name} · ${fmt(r.time)}`, 'boards');
+    if (f && f.length > 6) startReplay(tr, f, `World record · ${r.name} · ${carById(r.car).name} · ${fmt(r.time)}`, 'boards', r.car);
   }).catch(() => { $('btnWatchWR').textContent = 'Watch the world record'; });
 });
 
@@ -958,6 +1393,8 @@ function loadSettingsUI() {
   $('setTiltInv').checked = settings.tiltInvert;
   $('setAutoGas').checked = settings.autoGas;
   $('setFull').checked = settings.fullscreen;
+  $('setCb').checked = settings.colorBlind;
+  $('setDynRes').checked = settings.dynRes;
 }
 function bindSetting(id, key, kind, after) {
   $(id).addEventListener(kind === 'check' ? 'change' : 'input', (e) => {
@@ -967,7 +1404,7 @@ function bindSetting(id, key, kind, after) {
     persist();
   });
 }
-const rebuildWorld = () => { if (cur) { const tr = cur.tr; cur.quality = null; loadTrack(tr); if (race) placeCar(race.car); } };
+const rebuildWorld = () => { if (cur) { const tr = cur.tr, wet = cur.track.wet; cur.quality = null; loadTrack(tr, cur.cond); if (race) { if (wet && !cur.track.wet) { cur.track.wet = true; cur.world.setWet(1); } race.track = cur.track; placeCar(race.car); } } };
 bindSetting('setQuality', 'quality', 'select', () => { applyQuality(); rebuildWorld(); });
 bindSetting('setCamera', 'camera', 'select');
 bindSetting('setUnits', 'units', 'select');
@@ -994,6 +1431,40 @@ bindSetting('setSteer', 'steer', 'select', () => {
 bindSetting('setTiltInv', 'tiltInvert', 'check', () => { input.tiltInvert = settings.tiltInvert; });
 bindSetting('setAutoGas', 'autoGas', 'check', () => { input.autoGas = settings.autoGas; });
 bindSetting('setFull', 'fullscreen', 'check');
+bindSetting('setDynRes', 'dynRes', 'check', () => { resScale = 1; applyQuality(); });
+bindSetting('setCb', 'colorBlind', 'check', () => { document.body.classList.toggle('cb', settings.colorBlind); rebuildWorld(); });
+
+// ---------- your own keys (Controls screen) ----------
+input.setKeys(settings.keys);
+document.body.classList.toggle('cb', settings.colorBlind);
+function renderKeys() {
+  for (const b of document.querySelectorAll('.keybtn')) {
+    const a = KEY_ACTIONS.find((x) => x.id === b.dataset.act);
+    b.textContent = keyLabel(settings.keys[a.id] || a.canon);
+    b.classList.remove('wait');
+  }
+}
+for (const b of document.querySelectorAll('.keybtn')) b.addEventListener('click', () => {
+  sound.click();
+  renderKeys();
+  b.textContent = 'Press a key…';
+  b.classList.add('wait');
+  input.capture = (code) => {
+    if (code !== 'Escape') {
+      const keyOf = (id) => settings.keys[id] || KEY_ACTIONS.find((x) => x.id === id).canon;
+      const act = b.dataset.act, old = keyOf(act);
+      // a key another action already uses: they swap
+      const clash = KEY_ACTIONS.find((x) => x.id !== act && keyOf(x.id) === code);
+      const next = { ...settings.keys, [act]: code };
+      if (clash) next[clash.id] = old;
+      settings.keys = next;
+      input.setKeys(settings.keys);
+      persist();
+    }
+    renderKeys();
+  };
+});
+$('btnKeysReset').addEventListener('click', () => { sound.click(); settings.keys = {}; input.setKeys({}); persist(); renderKeys(); });
 
 // Touch screens: a button fires when the finger lifts off it (if it hasn't moved
 // far), instead of waiting for the browser's click, which some phones swallow
@@ -1028,10 +1499,12 @@ click('btnPlay', () => startRace(nextTrack()));
 click('btnRaceMode', () => { backTo = 'menu'; trackMode = 'race'; showScreen('tracks'); });
 click('btnCups', () => { backTo = 'menu'; showScreen('cups'); });
 click('btnDaily', () => { const d = todaysDaily(); if (d) startRace(d, { kind: 'daily' }); });
+click('btnOnline', () => toast('Online races are coming in the next update', 1800));
+click('btnWeekly', () => { const w = thisWeek(); if (w) startRace(w, { kind: 'weekly' }); });
 click('btnTracks', () => { backTo = 'menu'; trackMode = 'trial'; showScreen('tracks'); });
 click('btnGarage', () => { backTo = 'menu'; showScreen('garage'); });
 click('btnStats', () => { backTo = 'menu'; showScreen('stats'); });
-click('btnBoards', () => { backTo = 'menu'; boardTrack = save.last || 1; showScreen('boards'); });
+click('btnBoards', () => { backTo = 'menu'; boardTrack = (save.last || 1) + 1; showScreen('boards'); });
 click('btnSettings', () => { backTo = 'menu'; showScreen('settings'); });
 click('btnControls', () => { backTo = 'menu'; showScreen('controls'); });
 $('btnWatch').addEventListener('click', (e) => { e.preventDefault(); sound.init(); startRace(nextTrack(), { watch: true }); });
@@ -1044,7 +1517,7 @@ click('btnRetry', () => startRace(cur.tr, { watch: watching, kind: sess.kind }))
 click('btnReplay', () => { if (recorder && recorder.frames.length > 6) startReplay(cur.tr, recorder.frames.slice(), watching ? 'Autopilot replay' : 'Your run', 'finish'); });
 click('btnNext', nextAfterFinish);
 click('btnFinMenu', exitToMenu);
-click('btnCupNext', () => { if (save.cup) startRace(cupTracks(save.cup.theme)[save.cup.round], { kind: 'cup' }); else exitToMenu(); });
+click('btnCupNext', () => { if (save.cup) openGrid(cupTracks(save.cup.theme)[save.cup.round], 'cup'); else exitToMenu(); });
 click('btnCupQuit', exitToMenu);
 
 function pause() {
@@ -1066,8 +1539,9 @@ function resume() {
 
 // ---------- replays ----------
 let rp = null; // { player, t, speed, paused, camMode, director, title, back, dur }
-function startReplay(tr, frames, title, back) {
+function startReplay(tr, frames, title, back, carId = null) {
   loadTrack(tr);
+  if (carId && carId !== carDef.id) useCar(carId); // a world record set in another car
   const player = new GhostPlayer(frames, cur.track);
   rp = { player, t: 0, speed: 1, paused: false, camMode: 'tv', director: new Director(cur.track, cur.cams), title, back, dur: player.count / 30 };
   mode = 'replay';
@@ -1080,6 +1554,7 @@ function startReplay(tr, frames, title, back) {
 }
 function endReplay() {
   $('replayHud').classList.add('hidden');
+  if (carDef.id !== (save.car || 'gt')) useCar(save.car || 'gt');
   const back = rp.back;
   rp = null;
   if (back === 'finish' && race) { mode = 'finished'; showScreen('finish'); }
@@ -1254,6 +1729,7 @@ function chaseCamera(dt, p, speed, vx, vz) {
     const [dist, hgt] = cam === 'far' ? [9.6, 3.4] : [6.4, 2.2];
     const d = dist + Math.min(1.4, speed * 0.02);
     const cx = p.x - Math.cos(camYaw) * d, cz = p.z - Math.sin(camYaw) * d;
+    if (Math.abs(p.y + hgt - camY) > 4) camY = p.y + hgt; // after a reset or a skip
     camY += (p.y + hgt - camY) * (1 - Math.exp(-dt * 6));
     camera.position.set(cx, camY, cz);
     camera.lookAt(p.x + Math.cos(camYaw) * 4, p.y + 1.0, p.z + Math.sin(camYaw) * 4);
@@ -1296,6 +1772,8 @@ function renderMirror(pose) {
   mirrorCam.lookAt(pose.x - ch * 30, pose.y + 0.6, pose.z - sh * 30);
   const wasVisible = carModel.root.visible;
   carModel.root.visible = false;
+  const hidden = rivalModels.filter((m) => m.mirror && !m.root.visible);
+  for (const m of hidden) m.root.visible = true;
   renderer.setScissorTest(true);
   renderer.setScissor(x, innerHeight - top - h, w, h);
   renderer.setViewport(x, innerHeight - top - h, w, h);
@@ -1303,6 +1781,7 @@ function renderMirror(pose) {
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   carModel.root.visible = wasVisible;
+  for (const m of hidden) m.root.visible = false;
   const f = $('mirrorFrame').style;
   f.width = `${w}px`; f.height = `${h}px`; f.top = `${top - 3}px`;
 }
@@ -1313,6 +1792,15 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  frameAvg += (dt - frameAvg) * 0.05;
+  resT += dt;
+  if (resT > 1.2 && settings.dynRes && document.visibilityState === 'visible') {
+    resT = 0;
+    const was = resScale;
+    if (frameAvg > 1 / 45 && mode === 'race') resScale = Math.max(0.55, resScale - 0.1);
+    else if (frameAvg < 1 / 56) resScale = Math.min(1, resScale + 0.05);
+    if (resScale !== was) applyQuality();
+  }
   input.pollPad();
   let pose = null;
 
@@ -1344,6 +1832,10 @@ function frame(now) {
       if (mode !== 'race' && mode !== 'finished') break;
     }
     if (steps >= 24) acc = 0;
+    if (sess.rain && race.state === 'racing') {
+      if (!sess.rain.started && race.time > sess.rain.at) startRain();
+      if (sess.rain.started && sess.rain.k < 1) { sess.rain.k = Math.min(1, sess.rain.k + dt / 8); cur.world.setWet(sess.rain.k); }
+    }
   }
   if ((mode === 'race' || mode === 'finished') && race) {
     const c = race.car;
@@ -1357,6 +1849,7 @@ function frame(now) {
     const speed = Math.hypot(c.u, c.v);
     const braking = lastInput.brake > 0 && c.u > 0.5;
     carModel.animate(dt, { steer: c.steer, speed: c.u, latAcc: c.u * c.r, longAcc: c.ax, braking });
+    carModel.setDamage(c.damage);
     const ch = Math.cos(c.h), sh = Math.sin(c.h);
     const vx = c.u * ch - c.v * sh, vz = c.u * sh + c.v * ch;
 
@@ -1368,9 +1861,14 @@ function frame(now) {
         const m = rivalModels[k];
         if (!m) return;
         const rc = r.car, rpz = lerp(prevRivals[k] || rc, rc);
-        m.root.visible = true;
+        // a car right on top of the chase camera would fill the screen: hide it
+        // from the main view (the mirror still shows it)
+        const cp = camera.position;
+        m.root.visible = !(settings.camera === 'chase' || settings.camera === 'far') || (rpz.x - cp.x) ** 2 + (rpz.z - cp.z) ** 2 + (rpz.y + 0.6 - cp.y) ** 2 > 3.4 ** 2;
+        m.mirror = true;
         m.pose(rpz.x, rpz.y, rpz.z, rpz.h, rpz.pitch);
         m.animate(dt, { steer: rc.steer, speed: rc.u, latAcc: rc.u * rc.r, longAcc: rc.ax, braking: rc.ax < -3 });
+        m.setDamage(rc.damage);
         const pos = order.indexOf(r) + 1;
         tags.push({ x: rpz.x, y: rpz.y, z: rpz.z, color: hex(r.color), html: `<span class="tp">P${pos}</span>${r.name}` });
         dots.push([rpz, hex(r.color)]);
@@ -1378,7 +1876,7 @@ function frame(now) {
     }
 
     // ghosts: your best (cyan) and the world record (gold)
-    const gm = withRivals() ? 'off' : settings.ghost;
+    const gm = withRivals() || sess.kind === 'quali' ? 'off' : settings.ghost;
     const gp = showGhost(ghostModel, gm === 'best' || gm === 'both' ? ghost : null, c, dt);
     const rpG = showGhost(recordModel, gm === 'record' || gm === 'both' ? recordGhost : null, c, dt);
     if (rpG && recordInfo && !recordInfo.me) tags.push({ x: rpG.x, y: rpG.y, z: rpG.z, color: '#ffd25a', html: `<span class="tp">WR</span>${esc(recordInfo.name)} · ${fmt(recordInfo.time)}` });
@@ -1391,9 +1889,10 @@ function frame(now) {
       const wx = c.x - ch * 1.3 - sh * side, wz = c.z - sh * 1.3 + ch * side;
       const strength = c.onGrass ? 0 : Math.max(0, Math.min(1, slide * 2.5)) * Math.min(1, speed / 6);
       effects.mark(w, wx, c.y, wz, ch, sh, cur.track.wet ? strength * 0.4 : strength);
-      if (strength > 0.15 && Math.random() < strength) effects.puff(wx, c.y + 0.3, wz, vx, vz, strength);
-      if (c.onGrass && speed > 6 && Math.random() < 0.35) effects.puff(wx, c.y + 0.2, wz, vx, vz, 0.2);
-      if (cur.track.wet && speed > 14 && Math.random() < Math.min(0.7, speed / 60)) effects.puff(wx, c.y + 0.25, wz, vx * 0.3, vz * 0.3, 0.15);
+      const smoke = TOUCH ? 0.3 : 0.5; // fewer puffs: they used to hide the road (and the phone screen)
+      if (strength > 0.25 && Math.random() < strength * smoke) effects.puff(wx, c.y + 0.3, wz, vx, vz, strength);
+      if (c.onGrass && speed > 6 && Math.random() < 0.2 * smoke) effects.puff(wx, c.y + 0.2, wz, vx, vz, 0.2);
+      if (cur.track.wet && speed > 14 && Math.random() < Math.min(0.5, speed / 80) * smoke) effects.puff(wx, c.y + 0.25, wz, vx * 0.3, vz * 0.3, 0.15);
     }
     effects.update(dt);
 
@@ -1415,6 +1914,18 @@ function frame(now) {
     if (c.gear !== lastGear && race.state === 'racing') { sound.shift(); lastGear = c.gear; }
     sound.update({ rpm: c.rpm, throttle: mode === 'finished' ? 0 : race.state === 'countdown' ? Math.min(1, c.rpm / carDef.spec.revMax) : lastInput.throttle, speed, slip: Math.max(c.slipR, c.slipF * 0.9), grass: c.onGrass, kerb: c.onKerb, active: true });
     music.setIntensity(Math.min(1, speed / 60));
+    if (race.field) {
+      // the rivals' engines, from where the camera is
+      camera.getWorldDirection(tmpV);
+      const fl = Math.hypot(tmpV.x, tmpV.z) || 1, dx = tmpV.x / fl, dz = tmpV.z / fl;
+      const cp = camera.position, mv = { x: c.u * ch - c.v * sh, z: c.u * sh + c.v * ch };
+      sound.updateRivals(race.field.cars.map((r) => {
+        const rc = r.car, ox = rc.x - cp.x, oz = rc.z - cp.z;
+        const rv = { x: rc.u * Math.cos(rc.h) - rc.v * Math.sin(rc.h), z: rc.u * Math.sin(rc.h) + rc.v * Math.cos(rc.h) };
+        const px = c.x - rc.x, pz = c.z - rc.z, pd = Math.hypot(px, pz) || 1;
+        return { rpm: rc.rpm, throttle: Math.max(0.2, Math.min(1, rc.ax / 3)), right: -ox * dz + oz * dx, fwd: ox * dx + oz * dz, closing: ((rv.x - mv.x) * px + (rv.z - mv.z) * pz) / pd };
+      }), TOUCH ? 2 : 3);
+    }
 
     // wrong way
     const along = ch * c.loc.tx + sh * c.loc.tz;
@@ -1464,6 +1975,7 @@ function showGhost(model, player, c, dt) {
 
 function updateHud(c, speed, pose, dots) {
   const now = performance.now();
+  $('hud').classList.toggle('counting', race.state === 'countdown');
   $('timer').textContent = fmt(race.time);
   $('lapNum').textContent = Math.min(race.lap + 1, race.laps);
   $('lapTime').textContent = fmt(race.state === 'finished' ? race.lapTimes[race.lapTimes.length - 1] : race.lapTime);
@@ -1471,7 +1983,23 @@ function updateHud(c, speed, pose, dots) {
   $('bestLap').textContent = `Best lap ${isFinite(bl) ? fmt(bl) : '--'}`;
   const bestThis = race.lapTimes.length ? Math.min(...race.lapTimes) : 0;
   $('lapList').innerHTML = race.lapTimes.map((l, k) => `<div class="${l === bestThis ? 'pb' : ''}">L${k + 1} ${fmt(l)}</div>`).join('');
-  if (withRivals()) $('posNum').textContent = race.position;
+  if (withRivals()) {
+    $('posNum').textContent = race.position;
+    // live gaps to the cars just ahead and behind
+    const order = race.order, at = order.findIndex((x) => x.me);
+    const gapLine = (o, cls, sign) => {
+      if (!o) return '';
+      const k = race.field.cars.indexOf(o);
+      const g = Math.abs(race.gapTo(k));
+      return `<span class="${cls}">${sign}${g.toFixed(1)}s</span> <span class="gn">${esc(o.name.split(' ')[0])}</span>`;
+    };
+    if (now > gapsAt) {
+      gapsAt = now + 250;
+      $('gapAhead').innerHTML = race.state === 'racing' ? gapLine(order[at - 1], 'ga', '+') : '';
+      $('gapBehind').innerHTML = race.state === 'racing' ? gapLine(order[at + 1], 'gb', '−') : '';
+    }
+  }
+  if (now > posFlashUntil) $('posFlash').classList.remove('show');
   const k = settings.units === 'mph' ? 2.237 : 3.6;
   $('speed').textContent = Math.round(Math.abs(c.u) * k);
   $('unit').textContent = settings.units === 'mph' ? 'MPH' : 'KM/H';
@@ -1526,14 +2054,14 @@ addEventListener('pointerdown', () => sound.init(), { once: true });
 requestAnimationFrame(frame);
 
 // for tests
-window.__redline = {
+window.__redline = { music, sound, res: () => ({ resScale, frameAvg }),
   scene, camera, save, settings, TRACKS,
   get race() { return race; }, get mode() { return mode; }, get recordInfo() { return recordInfo; }, get recordGhost() { return recordGhost; },
   get drift() { return drift; }, get sess() { return sess; }, get rp() { return rp; }, get cur() { return cur; },
   startRace, startCup, todaysDaily, award, inputRead: () => input.read(),
   /** Run the physics ahead by `sec` seconds (the autopilot drives if it's on). */
   fastForward(sec, auto = true) {
-    const driver = bot || (auto ? new Bot(cur.track, 0.9, carDef.spec) : null);
+    const driver = bot || (auto ? new Bot(cur.track, 0.9, playerSpec()) : null);
     for (let k = 0; k < sec / DT && race && (mode === 'race' || mode === 'finished'); k++) {
       const c = race.car;
       prev = null; prevRivals = [];

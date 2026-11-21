@@ -1,4 +1,4 @@
-// The four settings the circuits are grouped into: sky, light, ground colour and
+// The five settings the circuits are grouped into: sky, light, ground colour and
 // which scenery is scattered around.
 export const THEMES = {
   meadow: {
@@ -36,5 +36,14 @@ export const THEMES = {
     hemiSky: 0x6a7ac0, hemiGround: 0x2a2a34, hemiInt: 1.15,
     ground: [0x22302a, 0x1a2520], hill: 0.2, mountains: 0x10162a,
     props: 'city', wall: [0xdedede, 0xe0a020], kerb: [0xe0a020, 0x1a1a1a], night: true,
+  },
+  riviera: {
+    name: 'Riviera', blurb: 'Grand Prix circuits on a sunny coast: long straights, chicanes and hairpins',
+    skyTop: 0x1f78d8, skyBottom: 0xbfe4f8, sunGlow: 0xfff6d8,
+    fog: 0xcde6f3, fogNear: 320, fogFar: 1600,
+    sun: 0xfff2d8, sunInt: 3.0, sunDir: [0.3, 0.85, -0.4],
+    hemiSky: 0xc4e2ff, hemiGround: 0x6a8040, hemiInt: 1.05,
+    ground: [0x7fa64a, 0x6a9440], hill: 0.6, mountains: 0x6f93b0,
+    props: 'trees', wall: [0xf4f4f4, 0x1a3a8a], kerb: [0xe8322a, 0xf6f6f6], night: false,
   },
 };

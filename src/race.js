@@ -7,7 +7,7 @@
 
 import { DT, makeCar, stepCar, CAR } from './car.js';
 import { LAPS, SPACING, locate } from './track.js';
-import { Field, collide, gridSlot, standings } from './rivals.js';
+import { Field, collide, gridSlot, standings, slipstream } from './rivals.js';
 
 export const COUNTDOWN = 3; // seconds
 export const SECTORS = 3;
@@ -31,7 +31,7 @@ export class Race {
     const t = this.track;
     const back = Math.round(START_BACK / SPACING);
     if (this.rivalOpts) {
-      const slot = gridSlot(5);
+      const slot = gridSlot(this.rivalOpts.playerSlot ?? 5);
       this.car = makeCar(t, 0, slot.back, this.spec, slot.lat);
       this.field = new Field(t, this.spec, { ...this.rivalOpts, laps: this.laps });
     } else {
@@ -55,6 +55,31 @@ export class Race {
     this.grassTime = 0;
     this.bumps = 0;
     this.launchQuality = null; // 'perfect', 'good', 'spin' or 'bog'
+    // live gaps: the race time each car reached every 10 m of the race
+    this.passTimes = this.field ? [this.car, ...this.field.cars.map((r) => r.car)].map(() => new Float32Array(Math.ceil((this.laps * t.L) / 10) + 2)) : null;
+    this.passDone = this.passTimes ? this.passTimes.map(() => 0) : null;
+    this.lastPos = this.field ? 6 : 1;
+  }
+
+  /** Mark how far each car has got (for the live gaps). */
+  trackPasses() {
+    const entries = [this.progress, ...this.field.cars.map((r) => r.progress)];
+    entries.forEach((p, k) => {
+      const arr = this.passTimes[k], to = Math.min(arr.length - 1, Math.floor(Math.max(0, p) / 10));
+      while (this.passDone[k] <= to) arr[this.passDone[k]++] = this.time;
+    });
+  }
+
+  /**
+   * Seconds between you and another car (k = rival index): positive = they're
+   * ahead of you by that long, negative = behind. Measured where the car behind is now.
+   */
+  gapTo(k) {
+    if (!this.passTimes) return 0;
+    const me = Math.max(0, this.progress), them = Math.max(0, this.field.cars[k].progress);
+    if (them >= me) { const b = Math.floor(me / 10); return b < this.passDone[k + 1] ? this.time - this.passTimes[k + 1][b] : 0; }
+    const b = Math.floor(them / 10);
+    return b < this.passDone[0] ? -(this.time - this.passTimes[0][b]) : 0;
   }
 
   /** Every car in the race (yours first). */
@@ -102,9 +127,11 @@ export class Race {
     }
 
     this.time += DT;
+    if (this.field) slipstream(this.allCars);
     stepCar(c, t, input, DT);
     if (this.field) {
       this.field.step(this.allCars, this.time, true);
+      for (const e of this.field.events) this.events.push(e);
       const bump = collide(this.allCars, t, c);
       if (bump > 1.5) { this.bumps++; this.events.push({ type: 'bump', v: bump }); }
     }
@@ -115,6 +142,11 @@ export class Race {
     if (ds > t.L / 2) ds -= t.L; else if (ds < -t.L / 2) ds += t.L;
     this.lastS = c.loc.s;
     this.progress += ds;
+    if (this.passTimes) {
+      this.trackPasses();
+      const pos = this.position;
+      if (pos !== this.lastPos) { this.events.push({ type: 'overtake', from: this.lastPos, to: pos }); this.lastPos = pos; }
+    }
 
     // sectors and laps
     while (true) {
@@ -174,8 +206,8 @@ export class Race {
 }
 
 /** Drive a whole race with a controller (e.g. the autopilot). Returns the race. */
-export function simulate(track, drive, { laps = LAPS, maxTime = 600 } = {}) {
-  const race = new Race(track, { laps });
+export function simulate(track, drive, { laps = LAPS, maxTime = 600, spec = undefined } = {}) {
+  const race = new Race(track, { laps, spec });
   const limit = (maxTime + COUNTDOWN) / DT;
   while (race.state !== 'finished' && race.tick < limit) race.step(drive(race.car, race));
   return race;

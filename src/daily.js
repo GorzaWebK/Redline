@@ -35,7 +35,7 @@ export function dailyDef(key = dayKey(), cached = null) {
   const n = dayNumber(key);
   const rnd = mulberry32(hashString(`redline-daily-${key}`));
   const diff = 0.2 + rnd() * 0.6;
-  const theme = THEME_IDS[((n % 4) + 4) % 4];
+  const theme = THEME_IDS[((n % 4) + 4) % 4]; // the four classic settings
   const wet = rnd() < 0.2;
   const [, m, d] = key.split('-').map(Number);
   const def = { id: dailyId(key), key, name: `Daily · ${d} ${MONTHS[m - 1]}`, theme, diff, wet, daily: true, seed: 0, gold: 0 };

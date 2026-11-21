@@ -6,7 +6,7 @@ import { Race, simulate } from '../src/race.js';
 import { generateTrack } from '../src/track.js';
 
 test('every circuit builds and the autopilot drives it cleanly in its gold time', () => {
-  assert.equal(TRACKS.length, 24);
+  assert.equal(TRACKS.length, 30);
   for (const tr of TRACKS) {
     const t = trackData(tr);
     assert.ok(t, `track ${tr.id} builds`);

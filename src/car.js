@@ -52,6 +52,13 @@ export function makeSpec(over = {}) {
   return P;
 }
 
+/** Cosmetic damage: c.damage.{front, rear, left, right} from 0 (clean) to 1. */
+export function bruise(c, part, v) {
+  if (v < 2.5) return;
+  const d = c.damage || (c.damage = { front: 0, rear: 0, left: 0, right: 0 });
+  d[part] = Math.min(1, d[part] + (v - 2.5) * 0.035);
+}
+
 /** A fresh car state at sample i of the track, facing along it (lat = metres to the right). */
 export function makeCar(track, i = 0, back = 0, spec = CAR, lat = 0) {
   const x = track.x[i] - track.tx[i] * back - track.tz[i] * lat, z = track.z[i] - track.tz[i] * back + track.tx[i] * lat;
@@ -102,7 +109,11 @@ export function stepCar(c, track, input, dt = DT) {
   c.onGrass = Math.abs(loc.lat) > track.halfW + 0.4;
   const al = Math.abs(loc.lat);
   c.onKerb = !!(track.kerb && track.kerb[loc.i]) && al > track.halfW - 0.35 && al < track.halfW + 1.0;
-  const mu = (c.onGrass ? P.muGrass : P.mu) * (track.wet ? WET_GRIP : 1);
+  // kerbs: the further onto one you are, the less grip (more in the wet), and
+  // the stripes jolt the car (see the torque below)
+  const kerbK = c.onKerb ? Math.max(0, Math.min(1, (al - (track.halfW - 0.35)) / 1.35)) : 0;
+  c.kerbK = kerbK;
+  const mu = (c.onGrass ? P.muGrass : P.mu) * (track.wet ? WET_GRIP : 1) * (1 - kerbK * (track.wet ? 0.16 : 0.08));
 
   // weight on each axle, shifting with acceleration
   const W = P.mass * G;
@@ -123,7 +134,9 @@ export function stepCar(c, track, input, dt = DT) {
     // reversing
     if (c.u > -P.reverseSpeed) drive = -brake * P.maxDrive * 0.45;
   } else {
-    drive = throttle * Math.min(P.maxDrive, P.power / Math.max(Math.abs(c.u), 1));
+    const pw = P.gearShift ? P.power * (1 + P.gearShift * (Math.abs(c.u) / P.gearRef - 0.6)) : P.power; // gearing (tuning)
+    drive = throttle * Math.min(P.maxDrive, pw / Math.max(Math.abs(c.u), 1));
+    if (P.topSpeed && c.u > P.topSpeed) drive *= Math.max(0, 1 - (c.u - P.topSpeed) / 2); // rev limiter (short gearing)
     if (c.launchT > 0) { drive *= c.launchMul; c.launchT -= dt; }
     if (c.u < -0.3 && throttle > 0) { drive = 0; brakeF = throttle * P.brake * P.brakeFront; brakeR = throttle * P.brake * (1 - P.brakeFront); }
     if (brake > 0) {
@@ -178,7 +191,8 @@ export function stepCar(c, track, input, dt = DT) {
   if (c.launchT > 0 && c.launchMul < 1 && throttle > 0) c.slipR = Math.max(c.slipR, 1.6); // a botched launch: wheelspin
 
   // resistances and slope
-  let resist = -P.drag * c.u * Math.abs(c.u) - P.roll * c.u;
+  // slipstream: right behind another car there's less air to push (c.draft 0..1)
+  let resist = -P.drag * (1 - 0.3 * (c.draft || 0)) * c.u * Math.abs(c.u) - P.roll * c.u;
   if (c.onGrass) resist -= P.grassDrag * c.u;
   const fwdGrade = loc.grade * (Math.cos(c.h) * loc.tx + Math.sin(c.h) * loc.tz);
   resist -= P.mass * G * fwdGrade;
@@ -188,6 +202,8 @@ export function stepCar(c, track, input, dt = DT) {
   const fy = fyR + fyF * cosD + fxF * sinD;
   let torque = P.a * (fyF * cosD + fxF * sinD) - P.b * fyR;
   c.fyF = fyF; c.fyR = fyR;
+  // kerb stripes: a yaw jolt that flips with each stripe, growing with speed
+  if (kerbK > 0 && c.u > 8) torque += Math.sin(loc.s * 2.6) * 2600 * kerbK * Math.min(1.4, c.u / 30);
   // drift control: once the car is properly sideways (over ~8 degrees) and
   // you're on the throttle, it holds the slide for you while you keep steering
   // into the corner (more steering = a deeper drift). Centre the steering,
@@ -288,6 +304,9 @@ export function stepCar(c, track, input, dt = DT) {
     const vn = wx * nx + wz * nz;
     if (vn > 0) {
       c.hit = vn;
+      // cosmetic damage: which part of the car met the wall (nose, tail or a side)
+      const fx = nx * ch + nz * sh, sx = -nx * sh + nz * ch; // wall normal in the car's frame
+      bruise(c, Math.abs(fx) > 0.7 ? (fx > 0 ? 'front' : 'rear') : sx > 0 ? 'right' : 'left', vn);
       wx -= vn * nx * 1.3; wz -= vn * nz * 1.3; // a little bounce
       const scrub = Math.max(0.55, 1 - vn * 0.035);
       wx *= scrub; wz *= scrub;

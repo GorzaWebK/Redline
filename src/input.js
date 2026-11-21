@@ -1,3 +1,18 @@
+// Actions you can move to another key (Controls screen), and the key each one
+// is known by inside the game. The arrow keys always work as well.
+export const KEY_ACTIONS = [
+  { id: 'gas', name: 'Accelerate', canon: 'KeyW' },
+  { id: 'brake', name: 'Brake / reverse', canon: 'KeyS' },
+  { id: 'left', name: 'Steer left', canon: 'KeyA' },
+  { id: 'right', name: 'Steer right', canon: 'KeyD' },
+  { id: 'handbrake', name: 'Handbrake (drift)', canon: 'Space' },
+  { id: 'reset', name: 'Back on the track', canon: 'KeyC' },
+  { id: 'restart', name: 'Restart', canon: 'KeyR' },
+  { id: 'camera', name: 'Change camera', canon: 'KeyV' },
+];
+/** A key code as a short label: KeyW -> W, ArrowUp -> ↑, Space -> Space. */
+export const keyLabel = (code) => (code || '').replace(/^Key/, '').replace(/^Digit/, '').replace('ArrowUp', '↑').replace('ArrowDown', '↓').replace('ArrowLeft', '←').replace('ArrowRight', '→').replace(/^Numpad/, 'Num ');
+
 // Keyboard, gamepad and touch. Steering on a keyboard (or the touch buttons) is
 // all-or-nothing; the car eases the wheels in itself (see car.js). A gamepad
 // gives analogue steering and pedals; on a phone you can also steer by tilting.
@@ -21,15 +36,34 @@ export class Input {
       // landscape: tilting the phone like a steering wheel changes beta
       this.tiltRaw = ang === 90 ? e.beta : ang === 270 || ang === -90 ? -e.beta : e.gamma;
     });
+    this.trans = {}; // your key -> the game's key (remapping)
+    this.capture = null; // set while the Controls screen waits for a key
     window.addEventListener('keydown', (e) => {
+      if (this.capture) { e.preventDefault(); e.stopImmediatePropagation(); const f = this.capture; this.capture = null; f(e.code); return; }
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
       if (e.repeat) return;
-      this.keys.add(e.code);
-      this.handlers.key?.(e.code, e);
+      const code = this.code(e.code);
+      if (!code) return;
+      this.keys.add(code);
+      this.handlers.key?.(code, e);
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => { const code = this.code(e.code); if (code) this.keys.delete(code); });
     window.addEventListener('blur', () => this.keys.clear());
   }
+
+  /** Use your own keys: { action id: key code }. */
+  setKeys(map = {}) {
+    this.trans = {};
+    const used = new Set();
+    for (const a of KEY_ACTIONS) {
+      const k = map[a.id];
+      if (k && k !== a.canon) { this.trans[k] = a.canon; used.add(k); }
+    }
+    // a default key that's been moved stops doing its old job (unless it was given a new one)
+    for (const a of KEY_ACTIONS) if (map[a.id] && map[a.id] !== a.canon && !used.has(a.canon)) this.trans[a.canon] = null;
+    this.keys.clear();
+  }
+  code(c) { return c in this.trans ? this.trans[c] : c; }
 
   pad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];

@@ -18,6 +18,7 @@
     <div id="hud" class="hidden">
       <div class="hud-tl">
         <div id="posLine" class="posline hidden">POS <b id="posNum">6</b><span>/<span id="posTotal">6</span></span></div>
+        <div id="gaps" class="gaps hidden"><div id="gapAhead"></div><div id="gapBehind"></div></div>
         <div class="lapline">LAP <b id="lapNum">1</b><span>/<span id="lapTotal">3</span></span></div>
         <div id="lapTime" class="mono">0:00.000</div>
         <div id="bestLap" class="sub">Best lap --</div>
@@ -33,6 +34,7 @@
         <div class="speedrow"><div id="speed" class="mono">0</div><div id="unit">KM/H</div></div>
         <div class="gearrow"><div id="gear">1</div><div class="rpm"><div id="rpmZone" class="hidden"></div><div id="rpmFill"></div></div></div>
       </div>
+      <div id="posFlash"></div>
       <div id="countdown"></div>
       <div id="launchTip" class="hidden">Tap <b id="ltKey">W</b> to hold the revs in the <span class="g">green zone</span> for a perfect start</div>
       <div id="driftBox" class="hidden"><div id="driftPts" class="mono">0</div><div id="driftMult">DRIFT</div></div>
@@ -53,11 +55,15 @@
         <p class="tag">Time trial racing. Find the line, beat the ghost, take the gold.</p>
         <div class="nextline"><span id="nextName">Track 1</span><span id="nextBest">Best --</span></div>
         <button id="btnPlay" class="primary">TIME TRIAL</button>
-        <div class="grid2">
+        <div class="grid3 modes">
           <button id="btnRaceMode" class="mode-race">Race rivals</button>
           <button id="btnCups" class="mode-cup">Championship</button>
+          <button id="btnOnline" class="mode-online">Online race</button>
         </div>
-        <button id="btnDaily" class="daily"><span class="dt">DAILY CHALLENGE</span><span id="dailySub" class="ds"></span></button>
+        <div class="grid2 challenges">
+          <button id="btnDaily" class="daily"><span class="dt">DAILY CHALLENGE</span><span id="dailySub" class="ds"></span></button>
+          <button id="btnWeekly" class="daily weekly"><span class="dt">WEEKLY TOURNAMENT</span><span id="weeklySub" class="ds"></span></button>
+        </div>
         <div class="grid3">
           <button id="btnTracks">Tracks</button>
           <button id="btnGarage">Garage</button>
@@ -75,7 +81,7 @@
     <div id="tracks" class="screen hidden">
       <div class="panel wide">
         <div class="head"><h2>Tracks</h2><span id="trackTotals" class="sub"></span><button class="back">Back</button></div>
-        <div class="tabs" id="trackTabs"><button data-mode="trial" class="on">Time trial</button><button data-mode="race">Race rivals</button><span class="sub" id="aiNote"></span></div>
+        <div class="tabs" id="trackTabs"><button data-mode="trial" class="on">Time trial</button><button data-mode="race">Race rivals</button><button data-mode="community">Community</button><span class="sub" id="aiNote"></span></div>
         <div id="trackList"></div>
       </div>
     </div>
@@ -84,11 +90,18 @@
     <div id="garage" class="screen hidden">
       <div class="panel side">
         <div class="head"><h2>Garage</h2><button class="back">Back</button></div>
-        <h3 class="gh">Car</h3>
-        <div id="carList"></div>
-        <h3 class="gh">Paint</h3>
-        <p class="sub">More paints unlock as you win medals.</p>
-        <div id="paintList"></div>
+        <div class="tabs" id="garageTabs"><button data-tab="gCar" class="on">Car</button><button data-tab="gTune">Tuning</button><button data-tab="gPaint">Paint</button><span class="wallet" id="walletG"></span></div>
+        <div id="gCar" class="gtab"><div id="carList"></div></div>
+        <div id="gTune" class="gtab hidden">
+          <p class="sub">Every drift point you score is banked in your wallet when a race ends. Spend them on tuning kits for each car; a kit unlocks its setting for good.</p>
+          <div id="tuneCar" class="tunecar"></div>
+          <div id="tunePresets" class="tabs"></div>
+          <div id="tuneList"></div>
+        </div>
+        <div id="gPaint" class="gtab hidden">
+          <p class="sub">More paints unlock as you win medals.</p>
+          <div id="paintList"></div>
+        </div>
       </div>
     </div>
 
@@ -98,6 +111,7 @@
         <div class="head"><h2>Leaderboards</h2><button class="back">Back</button></div>
         <label class="namerow">Your driver name <input id="nameInput" maxlength="16" spellcheck="false" /></label>
         <div class="boardnav"><button id="boardPrev">‹</button><div id="boardTitle"></div><button id="boardNext">›</button></div>
+        <div class="tabs" id="boardCars"><button data-car="" class="on">All cars</button><button data-car="gt">Redline GT</button><button data-car="hatch">Pocket Rocket</button><button data-car="muscle">Thunderbolt</button><button data-car="hyper">Apex V10</button></div>
         <div id="boardList" class="boardlist"></div>
         <div id="boardMe" class="sub"></div>
         <button id="btnWatchWR" class="hidden" style="margin-top:10px">Watch the world record</button>
@@ -111,6 +125,41 @@
         <div id="cupList" class="cuplist"></div>
       </div>
     </div>
+    <!-- track editor -->
+    <div id="editor" class="screen hidden">
+      <canvas id="edCanvas"></canvas>
+      <div class="panel edside">
+        <div class="head"><h2>Track editor</h2><button class="back">Back</button></div>
+        <label class="edrow">Name <input id="edName" maxlength="16" spellcheck="false" /></label>
+        <label class="edrow">Setting <select id="edTheme"><option value="meadow">Meadow</option><option value="canyon">Canyon</option><option value="alpine">Alpine</option><option value="night">Night City</option><option value="riviera">Riviera</option></select></label>
+        <label class="edrow">Road <select id="edWidth"><option value="narrow">Narrow</option><option value="normal">Normal</option><option value="wide">Wide</option></select></label>
+        <label class="edrow">Hills <input id="edHills" type="range" min="0" max="1" step="0.1" /></label>
+        <div id="edStatus" class="sub"></div>
+        <div class="edbtns">
+          <button id="edTest" class="primary">Test drive</button>
+          <button id="edCheck">Autopilot check</button>
+          <button id="edPublish">Publish</button>
+          <button id="edFit">Fit view</button>
+          <button id="edNew">New</button>
+        </div>
+        <p class="sub edhelp">Click the dotted line to add a point · drag points to move them · double-click (or hold) a point to remove it · drag the map to pan, scroll or pinch to zoom. Point 1 (green) is near the start; the arrows show the way round. Your circuits save automatically. Publishing needs a clean autopilot lap, which also sets the gold time.</p>
+      </div>
+    </div>
+
+    <!-- starting grid: back of the grid, random, or qualify -->
+    <div id="grid" class="screen hidden">
+      <div class="panel">
+        <div class="head"><h2>Starting grid</h2><span id="gridSub" class="sub"></span><button class="back">Back</button></div>
+        <div class="tabs" id="gridTabs"><button data-grid="back">Back of the grid</button><button data-grid="random">Random grid</button><button data-grid="qualify">Qualify (1 lap)</button></div>
+        <div class="tabs" id="gridWeather"><span class="sub">Weather:</span><button data-w="default">Circuit's own</button><button data-w="dry">Dry</button><button data-w="rain">Rain</button><button data-w="later">Rain later</button></div>
+        <div class="tabs" id="gridTime"><span class="sub">Time:</span><button data-t="day">Day</button><button data-t="sunset">Sunset</button><button data-t="night">Night</button></div>
+        <div class="tabs" id="gridLaps"><span class="sub">Laps:</span><button data-laps="1">1</button><button data-laps="3">3</button><button data-laps="5">5</button></div>
+        <div id="gridNote" class="sub"></div>
+        <div id="gridTable" class="sttable"></div>
+        <div class="row" style="margin-top:14px"><button id="btnGridGo" class="primary">Start</button></div>
+      </div>
+    </div>
+
     <div id="standings" class="screen hidden">
       <div class="panel">
         <div class="head"><h2 id="stTitle">Standings</h2></div>
@@ -148,6 +197,7 @@
         <div class="head"><h2>Settings</h2><button class="back">Back</button></div>
         <div class="rows">
           <label>Graphics <select id="setQuality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+          <label>Dynamic resolution (smoother on slow devices) <input id="setDynRes" type="checkbox" /></label>
           <label>Camera <select id="setCamera"><option value="chase">Chase</option><option value="far">Far chase</option><option value="hood">Hood</option><option value="bumper">Bumper</option></select></label>
           <label>Speed units <select id="setUnits"><option value="kmh">km/h</option><option value="mph">mph</option></select></label>
           <label>Field of view <input id="setFov" type="range" min="55" max="95" step="1" /><span id="fovVal"></span></label>
@@ -166,6 +216,7 @@
           <label>Music volume <input id="setMusic" type="range" min="0" max="1" step="0.05" /></label>
           <label>Mute all <input id="setMute" type="checkbox" /></label>
           <label>Show FPS <input id="setFps" type="checkbox" /></label>
+          <label>Colour-blind friendly (symbols and blue/orange colours) <input id="setCb" type="checkbox" /></label>
         </div>
       </div>
     </div>
@@ -175,13 +226,14 @@
       <div class="panel">
         <div class="head"><h2>Controls</h2><button class="back">Back</button></div>
         <table class="keys">
-          <tr><td>W / ↑</td><td>Accelerate</td></tr>
-          <tr><td>S / ↓</td><td>Brake (hold when stopped to reverse)</td></tr>
-          <tr><td>Space</td><td>Handbrake: flick it into a corner to start a drift</td></tr>
-          <tr><td>A D / ← →</td><td>Steer</td></tr>
-          <tr><td>C</td><td>Put the car back on the track (the clock keeps running)</td></tr>
-          <tr><td>R</td><td>Restart the race</td></tr>
-          <tr><td>V</td><td>Change camera</td></tr>
+          <tr><td><button class="keybtn" data-act="gas"></button> / ↑</td><td>Accelerate</td></tr>
+          <tr><td><button class="keybtn" data-act="brake"></button> / ↓</td><td>Brake (hold when stopped to reverse)</td></tr>
+          <tr><td><button class="keybtn" data-act="handbrake"></button></td><td>Handbrake: flick it into a corner to start a drift</td></tr>
+          <tr><td><button class="keybtn" data-act="left"></button> / ←</td><td>Steer left</td></tr>
+          <tr><td><button class="keybtn" data-act="right"></button> / →</td><td>Steer right</td></tr>
+          <tr><td><button class="keybtn" data-act="reset"></button></td><td>Put the car back on the track (the clock keeps running)</td></tr>
+          <tr><td><button class="keybtn" data-act="restart"></button></td><td>Restart the race</td></tr>
+          <tr><td><button class="keybtn" data-act="camera"></button></td><td>Change camera</td></tr>
           <tr><td>L</td><td>Racing line guide on/off</td></tr>
           <tr><td>G</td><td>Ghost car: your best, world record, both or off</td></tr>
           <tr><td>M</td><td>Mute</td></tr>
@@ -189,6 +241,7 @@
           <tr><td>N / Enter</td><td>Next track (on the finish screen)</td></tr>
           <tr><td>P</td><td>Watch the replay (on the finish screen)</td></tr>
         </table>
+        <p class="sub" id="keyNote">Click a key above, then press the key you want to use instead. <button id="btnKeysReset" class="linkbtn">Reset keys</button></p>
         <p class="sub"><b>On a phone or tablet:</b> ◀ ▶ on the left steer (or tilt the phone: Settings → Touch steering), GAS and BRAKE on the right, DRIFT is the handbrake. RESET puts the car back on the track, CAM changes the camera and II pauses. Hold BRAKE when stopped to reverse. Settings can also make the car accelerate by itself.</p>
         <p class="sub">Gamepads work too: left stick steers, right trigger (or A) accelerates, left trigger (or B) brakes, X is the handbrake. Start pauses, Y restarts, Back resets the car, RB changes camera.</p>
         <p class="sub"><b>Drifting:</b> flick the handbrake into a corner, then stay on the throttle and keep steering into the corner. The car holds the drift while you steer into it. Let go of the steering, countersteer or lift off to straighten up.</p>

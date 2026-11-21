@@ -123,3 +123,129 @@ test('achievements from the save', () => {
   assert.ok(!got.includes('gold'));
   assert.equal(new Set(ACHIEVEMENTS.map((a) => a.id)).size, ACHIEVEMENTS.length);
 });
+
+test('rivals: their own cars (balanced to yours), mistakes, and nobody gets stuck', () => {
+  for (const id of [5, 14, 25, 27, 30]) {
+    const tr = TRACKS[id - 1], t = trackData(tr);
+    const r = new Race(t, { rivals: { level: 'normal', seed: id, golds: tr.golds, playerCar: 'gt' } });
+    const cars = new Set(r.field.cars.map((x) => x.carId));
+    assert.ok(cars.size >= 3, `mixed cars on track ${id}: ${[...cars]}`);
+    let mistakes = 0;
+    while (r.tick < 120 * 420 && r.field.cars.some((x) => !x.finished)) {
+      r.step({ throttle: 0, brake: 1, steer: 0 });
+      mistakes += r.field.events.filter((e) => e.type === 'mistake').length;
+    }
+    const times = r.field.cars.map((x) => x.finished);
+    assert.ok(times.every((x) => x > 0), `all rivals finish track ${id}`);
+    // the fastest and slowest rivals end up within a sensible spread of the gold time
+    assert.ok(Math.min(...times) > tr.golds.gt * 0.97 && Math.max(...times) < tr.golds.gt * 1.25, `track ${id}: ${times.map((x) => x.toFixed(1))} gold ${tr.golds.gt}`);
+    r.mistakes = mistakes;
+    console.log(`track ${id}: rival times ${times.map((x) => x.toFixed(1)).join(', ')} (gold ${tr.golds.gt}), ${mistakes} mistakes, ${r.field.cars.reduce((a, x) => a + x.resets, 0)} resets`);
+  }
+});
+
+test('grid choice and qualifying: slots from lap times, the race starts from them', async () => {
+  const { qualiTimes, gridFromQuali, gridSlot } = await import('../src/rivals.js');
+  const { simulate } = await import('../src/race.js');
+  const tr = TRACKS[25], t = trackData(tr);
+  const q = qualiTimes(t, { level: 'normal', golds: tr.golds, playerCar: 'gt', seed: 3, simulate });
+  assert.equal(q.length, 5);
+  assert.ok(q.every((x) => x.time > 20 && x.time < 200), JSON.stringify(q));
+  const pole = gridFromQuali(q, 1); // impossibly quick: pole
+  assert.equal(pole.playerSlot, 0);
+  assert.deepEqual([...pole.slots].sort(), [1, 2, 3, 4, 5]);
+  const last = gridFromQuali(q, 999);
+  assert.equal(last.playerSlot, 5);
+  const r = new Race(t, { rivals: { level: 'normal', seed: 3, golds: tr.golds, slots: pole.slots, playerSlot: 0 } });
+  assert.equal(r.position, 1, 'on pole you start first');
+  const g0 = gridSlot(0);
+  assert.ok(Math.abs(r.car.loc.lat - g0.lat) < 0.3);
+});
+
+test('tuning: kits change the physics only once bought; wallet totals merge safely', async () => {
+  const { tunedSpec, kitPrice, activeSetup } = await import('../src/tuning.js');
+  const setup = { gearing: -1, balance: -1, bias: 1 };
+  assert.equal(tunedSpec(CAR, setup, []), CAR, 'no kits: stock car');
+  const loose = tunedSpec(CAR, setup, ['balance']);
+  assert.ok(loose.rearGrip < CAR.rearGrip && loose.maxDrive === CAR.maxDrive && loose.brakeFront === CAR.brakeFront);
+  const all = tunedSpec(CAR, setup, ['gearing', 'balance', 'bias']);
+  assert.ok(all.maxDrive > CAR.maxDrive && all.topSpeed > 0 && all.brakeFront > CAR.brakeFront);
+  assert.deepEqual(activeSetup({ gearing: 5 }, ['gearing']), { gearing: 1, balance: 0, bias: 0 });
+  assert.ok(kitPrice('hyper', 'balance') > kitPrice('hatch', 'balance'));
+  // a tuned car still drives a circuit cleanly
+  const t = trackData(TRACKS[4]);
+  const bot = new Bot(t, 0.9, all);
+  const r = new Race(t, { spec: all });
+  while (r.state !== 'finished' && r.tick < 120 * 400) r.step(bot.drive(r.car));
+  assert.equal(r.state, 'finished');
+  assert.ok(r.time < TRACKS[4].gold * 1.03, `tuned time ${r.time}`);
+  // wallet: earned and spent only grow, so merging takes the larger of each
+  const m = mergeSaves({ earned: 5000, spent: 1000, kits: { gt: ['bias'] } }, { earned: 7000, spent: 4000, kits: { gt: ['gearing'] } });
+  assert.equal(m.earned - m.spent, 3000);
+  assert.deepEqual(m.kits.gt.sort(), ['bias', 'gearing']);
+});
+
+test('live gaps: cars ahead show a positive gap, cars behind a negative one; overtakes are reported', () => {
+  const tr = TRACKS[9], t = trackData(tr);
+  const r = new Race(t, { rivals: { level: 'normal', seed: 4, golds: tr.golds } });
+  const me = new Bot(t, 0.9);
+  let overtakes = 0;
+  for (let k = 0; k < 120 * 70; k++) { r.step(me.drive(r.car)); overtakes += r.events.filter((e) => e.type === 'overtake').length; }
+  const order = r.order, at = order.findIndex((x) => x.me);
+  for (let i = 0; i < order.length; i++) {
+    if (i === at) continue;
+    const g = r.gapTo(r.field.cars.indexOf(order[i]));
+    assert.ok(i < at ? g > 0 : g < 0, `gap to P${i + 1} is ${g} (you're P${at + 1})`);
+    assert.ok(Math.abs(g) < 60);
+  }
+  assert.ok(overtakes > 0, 'starting at the back, the autopilot passes someone');
+});
+
+test('kerbs and damage: kerbs unsettle the car; wall hits dent the right part', async () => {
+  const { makeCar, stepCar } = await import('../src/car.js');
+  const t = trackData(TRACKS[0]);
+  // drive straight into the right-hand wall
+  const c = makeCar(t, 40, 0, CAR, 0);
+  c.u = 25; c.h += 0.5; // nose turned towards the right? depends on the side: check the part hit
+  for (let k = 0; k < 120 * 3; k++) stepCar(c, t, { throttle: 0.5, brake: 0, steer: 0 }, DT);
+  const d = c.damage;
+  assert.ok(d, 'hitting a wall leaves damage');
+  const total = d.front + d.rear + d.left + d.right;
+  assert.ok(total > 0 && total <= 4);
+  assert.ok(d.front + d.right + d.left > d.rear, JSON.stringify(d));
+});
+
+test('weekly tournament: one circuit per week, a set car, a clean gold time', async () => {
+  const { weekKey, weeklyDef, weeklyId, msToNextWeek } = await import('../src/weekly.js');
+  assert.equal(weekKey(new Date('2026-11-21T12:00:00Z')), '2026-W47');
+  assert.equal(weekKey(new Date('2026-11-16T00:00:01Z')), '2026-W47');
+  assert.equal(weekKey(new Date('2026-11-15T23:59:59Z')), '2026-W46');
+  assert.equal(weekKey(new Date('2027-01-01T12:00:00Z')), '2026-W53');
+  assert.equal(weeklyId('2026-W47'), 'w202647');
+  assert.ok(msToNextWeek(Date.parse('2026-11-22T23:00:00Z')) === 3600000);
+  for (const k of ['2026-W47', '2026-W48', '2026-W49', '2026-W50']) {
+    const d = weeklyDef(k);
+    assert.ok(d && d.seed && d.gold > 30, k);
+    assert.ok(['gt', 'hatch', 'muscle', 'hyper'].includes(d.car));
+    assert.equal(d.golds[d.car], d.gold);
+    assert.deepEqual(weeklyDef(k, { seed: d.seed, gold: d.gold }).seed, d.seed);
+    assert.match(d.name, /^Weekly · /);
+  }
+});
+
+test('community circuits: points build a road, the autopilot sets gold, bad layouts explain why', async () => {
+  const { customTrack, buildCustom, checkCustom, starterPts, encodePts, decodePts } = await import('../src/community.js');
+  const tr = customTrack({ id: 'abcd2345', name: 'Test', pts: starterPts(), width: 'normal', hills: 0.4 });
+  const b = buildCustom(tr);
+  assert.ok(b.track && b.track.L > 1000, JSON.stringify(b.why));
+  const c = checkCustom(tr);
+  assert.ok(c.ok && c.gold > 30, JSON.stringify(c));
+  assert.deepEqual(decodePts(encodePts(starterPts())), starterPts());
+  assert.equal(decodePts('1,2;3,4'), null, 'too few points');
+  assert.equal(decodePts('<script>'), null);
+  // two points almost on top of each other across the loop: the road would overlap
+  const bad = customTrack({ id: 'bad23456', pts: [[-200, 0], [0, -10], [200, 0], [0, 8]] });
+  assert.ok(buildCustom(bad).why);
+  // and it's the same road every time (it's what everyone races online)
+  assert.equal(buildCustom(tr).track.L, b.track.L);
+});

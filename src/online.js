@@ -6,7 +6,8 @@ import { ONLINE_CONFIG } from './online-config.js';
 //   redline/ghosts/<board>/<pid> = { time, data, at }            the recording of that best
 //   redline/accounts/<code> = { pid, save, at }                  account codes (account.js)
 //   redline/members/<pid>/<uid> = code                           browsers that joined an account
-// A board is t1..t24 for the circuits or d20261119 for a day's daily challenge.
+// A board is t1..t30 for the circuits or d20261119 for a day's daily challenge.
+// Each also has one board per car: t5_hyper is the Apex V10's board on track 5.
 // The security rules only let you write your own entries and only improve your time.
 //
 // ?emulator=1 talks to local Firebase emulators instead (for testing).
@@ -32,7 +33,7 @@ export function cleanName(name) {
   return n || 'Driver';
 }
 
-const board = (trackId) => (typeof trackId === 'number' ? `t${trackId}` : String(trackId));
+const board = (trackId, car = null) => (typeof trackId === 'number' ? `t${trackId}` : String(trackId)) + (car ? `_${car}` : '');
 
 async function connect() {
   if (!onlineEnabled) throw new Error('Online is switched off');
@@ -102,30 +103,30 @@ export async function writeAccount(code, save) {
  */
 export async function submitScore(trackId, name, time, lap, ghost = null, car = 'gt') {
   const f = await ident();
-  const id = board(trackId);
-  const mine = f.ref(f.db, `redline/scores/${id}/${f.pid}`);
-  const current = (await withTimeout(f.get(mine), 'Loading your time')).val();
   const clean = cleanName(name);
-  if (current && current.time <= time && current.name === clean) return { saved: false, best: current.time };
-  const improved = !current || time < current.time;
-  const entry = improved
-    ? { name: clean, time, lap, car, at: f.serverTimestamp() }
-    : { name: clean, time: current.time, lap: current.lap, car: current.car || 'gt', at: f.serverTimestamp() };
-  if (improved && ghost) {
-    await withTimeout(f.update(f.ref(f.db, 'redline'), {
-      [`scores/${id}/${f.pid}`]: entry,
-      [`ghosts/${id}/${f.pid}`]: { time, data: ghost, at: f.serverTimestamp() },
-    }), 'Saving your time');
-  } else {
-    await withTimeout(f.set(mine, entry), 'Saving your time');
-  }
-  return { saved: true, best: entry.time };
+  const ids = [board(trackId), board(trackId, car)]; // the overall board and this car's board
+  const currents = await Promise.all(ids.map((id) => withTimeout(f.get(f.ref(f.db, `redline/scores/${id}/${f.pid}`)), 'Loading your time').then((x) => x.val())));
+  const up = {};
+  let best = time, saved = false;
+  ids.forEach((id, k) => {
+    const current = currents[k];
+    if (k === 0 && current) best = Math.min(best, current.time);
+    if (current && current.time <= time && current.name === clean) return;
+    const improved = !current || time < current.time;
+    up[`scores/${id}/${f.pid}`] = improved
+      ? { name: clean, time, lap, car, at: f.serverTimestamp() }
+      : { name: clean, time: current.time, lap: current.lap, car: current.car || car, at: f.serverTimestamp() };
+    if (improved && ghost) up[`ghosts/${id}/${f.pid}`] = { time, data: ghost, at: f.serverTimestamp() };
+    saved = true;
+  });
+  if (saved) await withTimeout(f.update(f.ref(f.db, 'redline'), up), 'Saving your time');
+  return { saved, best };
 }
 
 /** Top `count` times on a track: [{ uid, name, time, lap, me }], fastest first. */
-export async function getLeaderboard(trackId, count = 10) {
+export async function getLeaderboard(trackId, count = 10, car = null) {
   const f = await ident();
-  const q = f.query(f.ref(f.db, `redline/scores/${board(trackId)}`), f.orderByChild('time'), f.limitToFirst(count));
+  const q = f.query(f.ref(f.db, `redline/scores/${board(trackId, car)}`), f.orderByChild('time'), f.limitToFirst(count));
   const snap = await withTimeout(f.get(q), 'Loading the leaderboard');
   const out = [];
   snap.forEach((c) => { const v = c.val(); out.push({ uid: c.key, name: v.name, time: v.time, lap: v.lap, car: v.car || 'gt', me: c.key === f.pid }); });
@@ -133,9 +134,9 @@ export async function getLeaderboard(trackId, count = 10) {
 }
 
 /** Your entry and world position on a track: { time, lap, rank } or null. */
-export async function getMyRank(trackId) {
+export async function getMyRank(trackId, car = null) {
   const f = await ident();
-  const id = board(trackId);
+  const id = board(trackId, car);
   const mine = (await withTimeout(f.get(f.ref(f.db, `redline/scores/${id}/${f.pid}`)), 'Loading your time')).val();
   if (!mine) return null;
   const q = f.query(f.ref(f.db, `redline/scores/${id}`), f.orderByChild('time'), f.endAt(mine.time), f.limitToFirst(2000));
@@ -146,11 +147,50 @@ export async function getMyRank(trackId) {
 }
 
 /** The world record's ghost on a track: { name, time, data } or null. */
-export async function getRecordGhost(trackId) {
-  const top = await getLeaderboard(trackId, 1);
+export async function getRecordGhost(trackId, car = null) {
+  const top = await getLeaderboard(trackId, 1, car);
   if (!top.length) return null;
   const f = await connect();
-  const g = (await withTimeout(f.get(f.ref(f.db, `redline/ghosts/${board(trackId)}/${top[0].uid}`)), 'Loading the record ghost')).val();
+  const g = (await withTimeout(f.get(f.ref(f.db, `redline/ghosts/${board(trackId, car)}/${top[0].uid}`)), 'Loading the record ghost')).val();
   if (!g || typeof g.data !== 'string') return null;
-  return { name: top[0].name, time: g.time, data: g.data, me: top[0].me };
+  return { name: top[0].name, time: g.time, data: g.data, me: top[0].me, car: top[0].car };
+}
+
+// ---------- community circuits ----------
+//   redline/community/<id> = { name, author, pts, theme, width, hills, gold, uid, at, likes }
+//   redline/votes/<id>/<uid> = true   (one like each; likes goes up by exactly one with it)
+
+/** Share a circuit drawn in the editor (it must have a gold time from the autopilot). */
+export async function publishTrack(def, author) {
+  const f = await connect();
+  const entry = {
+    name: cleanName(def.name || 'Untitled'), author: cleanName(author), pts: def.ptsText, theme: def.theme,
+    width: def.width, hills: Math.round((def.hills ?? 0.5) * 100) / 100, gold: def.gold, uid: f.uid, at: f.serverTimestamp(), likes: 0,
+  };
+  await withTimeout(f.set(f.ref(f.db, `redline/community/${def.id}`), entry), 'Publishing your circuit');
+  return true;
+}
+
+/** Shared circuits: order 'new' (newest first) or 'top' (most liked first). */
+export async function listCommunity(order = 'new', count = 24) {
+  const f = await connect();
+  const q = f.query(f.ref(f.db, 'redline/community'), f.orderByChild(order === 'top' ? 'likes' : 'at'), f.limitToLast(count));
+  const snap = await withTimeout(f.get(q), 'Loading community circuits');
+  const out = [];
+  snap.forEach((c) => { const v = c.val(); if (v && typeof v.pts === 'string') out.push({ id: c.key, ...v, mine: v.uid === f.uid }); });
+  return out.reverse();
+}
+
+/** Like a circuit (once). Returns the new like count. */
+export async function likeTrack(id) {
+  const f = await connect();
+  const cur = (await withTimeout(f.get(f.ref(f.db, `redline/community/${id}/likes`)), 'Liking')).val() || 0;
+  await withTimeout(f.update(f.ref(f.db, 'redline'), { [`votes/${id}/${f.uid}`]: true, [`community/${id}/likes`]: cur + 1 }), 'Liking');
+  return cur + 1;
+}
+
+/** Take down one of your own circuits. */
+export async function deleteTrack(id) {
+  const f = await connect();
+  await withTimeout(f.set(f.ref(f.db, `redline/community/${id}`), null), 'Removing your circuit');
 }

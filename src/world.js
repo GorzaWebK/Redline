@@ -28,6 +28,24 @@ function fbm(x, y, seed, oct = 4) {
 }
 const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
+/** A theme at another time of day: 'sunset' (low warm sun) or 'night' (dark, stars, street lamps). */
+export function timeVersion(th, time) {
+  if (!time || time === 'day' || th.night) return th;
+  const mix = (c, to, k) => new THREE.Color(c).lerp(new THREE.Color(to), k).getHex();
+  if (time === 'sunset') {
+    return {
+      ...th, skyTop: mix(th.skyTop, 0x2c3e7a, 0.6), skyBottom: mix(th.skyBottom, 0xff9a52, 0.75), sunGlow: 0xffb070,
+      fog: mix(th.fog, 0xe8a070, 0.6), sun: 0xffb27a, sunInt: th.sunInt * 0.75, sunDir: [th.sunDir[0], 0.16, th.sunDir[2]],
+      hemiSky: mix(th.hemiSky, 0xffc9a0, 0.5), hemiInt: th.hemiInt * 0.75, mountains: mix(th.mountains, 0x5a3e5a, 0.5),
+    };
+  }
+  return {
+    ...th, night: true, skyTop: 0x050914, skyBottom: 0x1a2340, sunGlow: 0x8fa6d8,
+    fog: 0x141a2c, fogNear: th.fogNear * 0.6, fogFar: th.fogFar * 0.7, sun: 0x9fb2e0, sunInt: 0.16, sunDir: [-0.3, 0.7, 0.4],
+    hemiSky: 0x6a7aaa, hemiGround: 0x1a2030, hemiInt: 0.75, mountains: mix(th.mountains, 0x0c1020, 0.75),
+  };
+}
+
 /** A theme in the rain: grey sky, closer fog, dimmer sun. */
 function wetVersion(th) {
   const grey = (c, k) => new THREE.Color(c).lerp(new THREE.Color(th.night ? 0x1a1e2a : 0x8a929c), k).getHex();
@@ -38,8 +56,10 @@ function wetVersion(th) {
   };
 }
 
-export function buildWorld(track, themeId, { quality = 'high', racingLine = false } = {}) {
-  const th = track.wet ? wetVersion(THEMES[themeId] || THEMES.meadow) : (THEMES[themeId] || THEMES.meadow);
+export function buildWorld(track, themeId, { quality = 'high', racingLine = false, colorBlind = false, time = 'day' } = {}) {
+  const dry = timeVersion(THEMES[themeId] || THEMES.meadow, time);
+  const th = track.wet ? wetVersion(dry) : dry;
+  const wetTh = wetVersion(dry); // for rain that starts during a race (setWet)
   const t = track, N = t.N, hw = t.halfW, wall = t.wall;
   const group = new THREE.Group();
   const rnd = mulberry32(t.seed ^ 0x5eed);
@@ -108,10 +128,11 @@ export function buildWorld(track, themeId, { quality = 'high', racingLine = fals
     const lineMat = keep(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
     const colorAt = (i) => {
       const braking = prof[(i + 6) % N] < prof[i] - 0.6;
-      if (braking) return [0.95, 0.15, 0.1];
+      // colour-blind friendly: orange / pale yellow / blue instead of red / yellow / green
+      if (braking) return colorBlind ? [1, 0.5, 0.05] : [0.95, 0.15, 0.1];
       const k = Math.abs(t.line.curv[i]);
       const cornerSpeed = Math.sqrt((CAR.mu * 0.9 * 9.81) / Math.max(k, 1e-4));
-      return cornerSpeed < prof[i] + 3 ? [1, 0.82, 0.1] : [0.2, 0.9, 0.35];
+      return cornerSpeed < prof[i] + 3 ? (colorBlind ? [1, 0.95, 0.7] : [1, 0.82, 0.1]) : colorBlind ? [0.2, 0.55, 1] : [0.2, 0.9, 0.35];
     };
     const off = t.line.off;
     strip(loop, (i) => [P(i, off[i] - 0.25, 0.06), P(i, off[i] + 0.25, 0.06)], 10, lineMat, { colors: colorAt }).renderOrder = 1;
@@ -195,6 +216,7 @@ export function buildWorld(track, themeId, { quality = 'high', racingLine = fals
   }
 
   // ---- terrain ----
+  const B = t.bridge;
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < N; i++) {
     minX = Math.min(minX, t.x[i]); maxX = Math.max(maxX, t.x[i]);
@@ -217,14 +239,22 @@ export function buildWorld(track, themeId, { quality = 'high', racingLine = fals
       if (d < bd) { bd = d; bi = kk; }
     }
     const d = Math.sqrt(bd);
-    let h = t.y[bi] - 0.45;
+    let base = t.y[bi];
+    // under a bridge the ground follows the lower road, not the deck above it
+    if (B && (x - B.x) ** 2 + (z - B.z) ** 2 < (B.r + wall + 30) ** 2) {
+      for (let kk = 0; kk < N; kk++) {
+        const dx = x - t.x[kk], dz = z - t.z[kk];
+        if (dx * dx + dz * dz < (wall + 8) ** 2 && t.y[kk] < base) base = t.y[kk];
+      }
+    }
+    let h = base - 0.45;
     const k = smoothstep(wall + 2, wall + 110, d);
     if (k > 0) {
       let hill = fbm(x / 190, z / 190, seed) * 34 * th.hill + fbm(x / 60, z / 60, seed + 5, 3) * 5;
       if (themeId === 'canyon') hill += smoothstep(0.52, 0.6, fbm(x / 260, z / 260, seed + 9)) * 38; // mesas
       if (themeId === 'alpine') hill += Math.pow(fbm(x / 320, z / 320, seed + 3), 2) * 90;
       h += k * (hill - 6 * th.hill);
-      h = Math.max(h, t.y[bi] - 3);
+      h = Math.max(h, base - 3);
     }
     H[j * (nx + 1) + i] = h;
     D[j * (nx + 1) + i] = d;
@@ -263,6 +293,46 @@ export function buildWorld(track, themeId, { quality = 'high', racingLine = fals
     const ground = new THREE.Mesh(g, keep(new THREE.MeshLambertMaterial({ map: vergeTex, vertexColors: true })));
     ground.receiveShadow = true;
     group.add(ground);
+  }
+
+  // ---- the bridge on a figure of eight: a deck under the upper road, and pillars ----
+  if (B) {
+    const near = (i) => Math.hypot(t.x[i] - B.x, t.z[i] - B.z);
+    const up = [];
+    for (let k = -80; k <= 80; k++) { const i = (B.iUp + k + N) % N; if (near(i) < B.r) up.push(i); }
+    const deckMat = keep(new THREE.MeshLambertMaterial({ color: 0x9a9690, side: THREE.DoubleSide }));
+    const span = up.filter((i) => t.y[i] - heightAt(t.x[i], t.z[i]) > 2.5);
+    if (span.length > 2) {
+      strip(span, (i) => [P(i, -wall - 0.6, -1.3), P(i, wall + 0.6, -1.3)], 6, deckMat).castShadow = true;
+      for (const sg of [-1, 1]) strip(span, (i) => [P(i, sg * (wall + 0.6), -1.3), P(i, sg * (wall + 0.6), -0.02)], 6, deckMat);
+      // pillars either side of the road below, clear of it
+      const pillarGeo = keep(new THREE.BoxGeometry(1.4, 1, 1.4));
+      const lowW = wall + 4;
+      let last = -1e9;
+      for (const i of span) {
+        const dl = locateLowGap(i);
+        if (dl < lowW || t.s[i] - last < 14) continue;
+        last = t.s[i];
+        for (const sg of [-1, 1]) {
+          const [px, py, pz] = P(i, sg * (wall - 0.4), -1.3);
+          const gy = heightAt(px, pz), hgt = py - gy;
+          if (hgt < 1) continue;
+          const m = new THREE.Mesh(pillarGeo, deckMat);
+          m.scale.y = hgt; m.position.set(px, gy + hgt / 2, pz); m.castShadow = true;
+          group.add(m);
+        }
+      }
+    }
+    // how far a deck point is from the lower road (in plan)
+    function locateLowGap(i) {
+      let best = Infinity;
+      for (let k = -90; k <= 90; k++) {
+        const j = (B.iDown + k + N) % N;
+        const dd = Math.hypot(t.x[i] - t.x[j], t.z[i] - t.z[j]);
+        if (dd < best) best = dd;
+      }
+      return best;
+    }
   }
 
   // ---- distant mountains ----
@@ -428,9 +498,26 @@ export function buildWorld(track, themeId, { quality = 'high', racingLine = fals
     sun.position.copy(focus).addScaledVector(sunDir, 200);
   }
 
+  const fog = new THREE.Fog(th.fog, th.fogNear, th.fogFar);
+  /** Rain arriving mid-race: k from 0 (as built, dry) to 1 (fully wet). */
+  function setWet(k) {
+    const L = (a, b) => new THREE.Color(a).lerp(new THREE.Color(b), k);
+    sky.material.uniforms.top.value.copy(L(th.skyTop, wetTh.skyTop));
+    sky.material.uniforms.bottom.value.copy(L(th.skyBottom, wetTh.skyBottom));
+    sky.material.uniforms.glow.value.copy(L(th.sunGlow, wetTh.sunGlow));
+    fog.color.copy(L(th.fog, wetTh.fog));
+    fog.near = th.fogNear + (wetTh.fogNear - th.fogNear) * k;
+    fog.far = th.fogFar + (wetTh.fogFar - th.fogFar) * k;
+    sun.intensity = th.sunInt + (wetTh.sunInt - th.sunInt) * k;
+    hemi.intensity = th.hemiInt + (wetTh.hemiInt - th.hemiInt) * k;
+    roadMat.roughness = 0.92 - 0.62 * k;
+    roadMat.metalness = 0.25 * k;
+    roadMat.color.copy(L(0xffffff, 0x9a9ea6));
+  }
+
   return {
-    group, sky, theme: th, update, setStartLights, heightAt, distAt,
-    fog: new THREE.Fog(th.fog, th.fogNear, th.fogFar),
+    group, sky, theme: th, update, setStartLights, heightAt, distAt, setWet,
+    fog,
     dispose() {
       for (const d of disposables) d.dispose?.();
       group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.material && o.material.isMeshBasicMaterial && lights.includes(o)) o.material.dispose(); });

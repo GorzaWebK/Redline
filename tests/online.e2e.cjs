@@ -32,7 +32,11 @@ async function rulesTests() {
   check(await ok(db.set(refA, entry('Alice B', 190, 60))), 'rules: the same time with a new name is allowed');
   check(!(await ok(db.set(db.ref(A.d, `redline/scores/t24/${B.uid}`), entry('Mallory', 100, 30)))), "rules: you can't write someone else's time");
   check(!(await ok(db.set(db.ref(anon.d, `redline/scores/t24/x`), entry('Anon', 100, 30)))), 'rules: you must be signed in');
-  check(!(await ok(db.set(db.ref(B.d, `redline/scores/t25/${B.uid}`), entry('Bob', 100, 30)))), 'rules: only tracks 1-24');
+  check(!(await ok(db.set(db.ref(B.d, `redline/scores/t31/${B.uid}`), entry('Bob', 100, 30)))), 'rules: only tracks 1-30');
+  check(await ok(db.set(db.ref(B.d, `redline/scores/t30/${B.uid}`), entry('Bob', 100, 30))), 'rules: track 30 (Riviera) has a board');
+  check(await ok(db.set(db.ref(B.d, `redline/scores/t30_hyper/${B.uid}`), entry('Bob', 100, 30, { car: 'hyper' }))), 'rules: per-car boards (t30_hyper)');
+  check(!(await ok(db.set(db.ref(B.d, `redline/scores/t29_hyper/${B.uid}`), entry('Bob', 100, 30, { car: 'gt' })))), "rules: a car's board only takes that car");
+  check(!(await ok(db.set(db.ref(B.d, `redline/scores/t29_tank/${B.uid}`), entry('Bob', 100, 30, { car: 'gt' })))), 'rules: no boards for made-up cars');
   check(!(await ok(db.set(db.ref(B.d, `redline/scores/t3/${B.uid}`), entry('Bob', 10, 3)))), 'rules: impossibly fast times are refused');
   check(!(await ok(db.set(db.ref(B.d, `redline/scores/t3/${B.uid}`), entry('Bob', 100, 40)))), 'rules: a best lap slower than a third of the race is refused');
   check(!(await ok(db.set(db.ref(B.d, `redline/scores/t3/${B.uid}`), entry('<b>Bob</b>', 100, 30)))), 'rules: names with odd characters are refused');
@@ -61,6 +65,23 @@ async function rulesTests() {
   check(await ok(db.set(db.ref(B.d, `redline/members/${A.uid}/${B.uid}`), code)), 'rules: a browser with the code can join the account');
   check(!(await ok(db.set(db.ref(B.d, `redline/members/${A.uid}/${B.uid}`), 'ZZZZZZZZZZZZZZZZ'))), 'rules: joining needs the right code');
   check(await ok(db.set(db.ref(B.d, `redline/scores/t7/${A.uid}`), entry('Alice', 100, 30))), 'rules: after joining, it can save times under the account');
+  // community circuits: publish, like once, only the author can take it down
+  const trk = (uid, extra = {}) => ({ name: 'My Loop', author: 'Alice', pts: '-220,-110;0,-150;220,-110;270,0;220,110;-220,110', theme: 'riviera', width: 'normal', hills: 0.4, gold: 95.5, uid, at: db.serverTimestamp(), likes: 0, ...extra });
+  check(await ok(db.set(db.ref(A.d, 'redline/community/abcd2345'), trk(A.uid))), 'rules: publish a community circuit');
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/abcd2345'), trk(B.uid)))), "rules: you can't overwrite someone's circuit");
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/zzzz2345'), trk(A.uid)))), 'rules: a circuit must be published under your own id');
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/zzzz2346'), trk(B.uid, { pts: '<script>' })))), 'rules: circuit points must be points');
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/zzzz2347'), trk(B.uid, { likes: 99 })))), 'rules: a new circuit starts with no likes');
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/ZZ'), trk(B.uid)))), 'rules: circuit ids look like ids');
+  const like = (who) => db.update(db.ref(who.d, 'redline'), { [`votes/abcd2345/${who.uid}`]: true, 'community/abcd2345/likes': 1 });
+  check(await ok(like(B)), 'rules: like a circuit (vote + one more like)');
+  check(!(await ok(db.update(db.ref(B.d, 'redline'), { [`votes/abcd2345/${B.uid}`]: true, 'community/abcd2345/likes': 2 }))), "rules: you can't like twice");
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/abcd2345/likes'), 50))), "rules: likes can't be set by hand");
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/abcd2345/name'), 'Hacked'))), "rules: you can't rename someone's circuit");
+  check(await ok(db.get(db.ref(anon.d, 'redline/community'))), 'rules: anyone can browse community circuits');
+  check(!(await ok(db.set(db.ref(B.d, 'redline/community/abcd2345'), null))), "rules: you can't delete someone else's circuit");
+  check(await ok(db.set(db.ref(B.d, `redline/scores/uabcd2345/${B.uid}`), entry('Bob', 100, 30))), 'rules: community circuits have leaderboards');
+  check(await ok(db.set(db.ref(A.d, 'redline/community/abcd2345'), null)), 'rules: the author can take their circuit down');
   // tidy up so the browser tests start clean (owner token clears everything)
   await fetch('http://127.0.0.1:9000/redline.json?ns=demo-redline', { method: 'DELETE', headers: { Authorization: 'Bearer owner' } });
 }
