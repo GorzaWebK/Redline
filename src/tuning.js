@@ -9,9 +9,9 @@
 import { makeSpec } from './car.js';
 
 export const KITS = [
-  { id: 'gearing', name: 'Gearbox', price: 6000, low: 'Short', high: 'Long', desc: 'Short gears pull harder out of slow corners; long gears give a higher top speed.' },
-  { id: 'balance', name: 'Grip balance', price: 8000, low: 'Loose rear', high: 'Planted rear', desc: 'A loose rear turns in sharply and drifts easily; a planted rear is stable but pushes wide.' },
-  { id: 'bias', name: 'Brake bias', price: 4000, low: 'Rear', high: 'Front', desc: 'Rear bias helps the car rotate as you brake into a corner; front bias keeps it straight.' },
+  { id: 'gearing', name: 'Gearbox', price: 30000, low: 'Short', high: 'Long', desc: 'Short gears pull harder out of slow corners; long gears give a higher top speed.' },
+  { id: 'balance', name: 'Grip balance', price: 40000, low: 'Loose rear', high: 'Planted rear', desc: 'A loose rear turns in sharply and drifts easily; a planted rear is stable but pushes wide.' },
+  { id: 'bias', name: 'Brake bias', price: 20000, low: 'Rear', high: 'Front', desc: 'Rear bias helps the car rotate as you brake into a corner; front bias keeps it straight.' },
 ];
 
 // faster cars cost more to tune
