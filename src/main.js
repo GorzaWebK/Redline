@@ -995,6 +995,33 @@ bindSetting('setTiltInv', 'tiltInvert', 'check', () => { input.tiltInvert = sett
 bindSetting('setAutoGas', 'autoGas', 'check', () => { input.autoGas = settings.autoGas; });
 bindSetting('setFull', 'fullscreen', 'check');
 
+// Touch screens: a button fires when the finger lifts off it (if it hasn't moved
+// far), instead of waiting for the browser's click, which some phones swallow
+// when the tap starts inside something that can scroll.
+if (TOUCH) {
+  let start = null, synthetic = false, swallowUntil = 0;
+  document.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest && e.target.closest('button, a');
+    start = b && !b.closest('#touchUI') && e.pointerType !== 'mouse' ? { b, x: e.clientX, y: e.clientY } : null;
+  }, true);
+  document.addEventListener('pointerup', (e) => {
+    if (!start) return;
+    const { b, x, y } = start;
+    start = null;
+    const over = document.elementFromPoint(e.clientX, e.clientY);
+    if (Math.hypot(e.clientX - x, e.clientY - y) > 16 || !over || !b.contains(over) || b.disabled) return;
+    swallowUntil = performance.now() + 600;
+    synthetic = true;
+    b.click();
+    synthetic = false;
+  }, true);
+  // the browser's own click that may follow: ignore it (we already acted)
+  document.addEventListener('click', (e) => {
+    if (synthetic || performance.now() > swallowUntil) return;
+    if (e.target.closest && e.target.closest('button, a') && !e.target.closest('#touchUI')) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+}
+
 // buttons
 const click = (id, fn) => $(id).addEventListener('click', () => { sound.init(); sound.click(); fn(); });
 click('btnPlay', () => startRace(nextTrack()));

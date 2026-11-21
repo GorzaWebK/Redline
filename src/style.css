@@ -434,3 +434,22 @@ body.touch #driftTotal { top: 150px; }
   .carpick .cb { font-size: 12px; }
   .gh { margin: 8px 0 4px; font-size: 16px; }
 }
+
+/* phones in landscape: the finish panel in two columns so it fits without scrolling */
+@media (max-height: 560px) and (orientation: landscape) {
+  .panel.finish { width: min(860px, 100%); display: grid; grid-template-columns: 1fr 1.25fr; column-gap: 20px; align-items: center; overflow: visible; max-height: none; }
+  .panel.finish .row { grid-column: 1 / -1; position: static; background: none; padding-top: 8px; }
+  .fin-r { text-align: left; }
+  .fin-r #finTable { columns: 1; }
+  .fin-r .sttable .r { padding: 2px 4px; }
+  #finLaps { flex-wrap: wrap; }
+}
+@media (max-height: 380px) and (orientation: landscape) {
+  .fintitle { font-size: 18px; }
+  .big { font-size: 32px; }
+  .medalbig { width: 46px; height: 46px; font-size: 12px; }
+  #finMedal { margin: 4px auto 0; }
+  .fin-r .sttable .r { font-size: 12px; }
+}
+/* touch screens: no sticky buttons (some phones mis-handle taps on them) */
+body.touch .panel.finish .row { position: static; }
