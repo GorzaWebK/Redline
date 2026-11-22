@@ -31,6 +31,7 @@ import { GhostRecorder, GhostPlayer, encodeGhost, decodeGhost } from './ghost.js
 import { loadSave, storeSave, loadGhost, storeGhost, loadMyTracks, storeMyTracks } from './save.js';
 import { customTrack, checkCustom, buildCustom, newTrackId, encodePts, decodePts, starterPts } from './community.js';
 import { Editor } from './editor.js';
+import { NetRace } from './netrace.js';
 import {
   onlineEnabled, cleanName, submitScore, getLeaderboard, getMyRank, getRecordGhost,
   setAccount, createAccount, fetchAccount, writeAccount,
@@ -528,7 +529,7 @@ function startRace(tr, { watch = false, kind = 'trial', grid = undefined, then =
   loadTrack(tr, sess.cond);
   watching = (watch || BOT) && kind === 'trial';
   const rivals = withRivals() ? { level: settings.aiLevel, seed: (sess.kind === 'cup' && save.cup ? save.cup.round : 0) + (typeof tr.id === 'number' ? tr.id : 1), golds: tr.golds && tr.golds.gt ? tr.golds : null, playerCar: carDef.id, ...(grid ? { slots: grid.slots, playerSlot: grid.playerSlot } : {}) } : null;
-  race = new Race(cur.track, { spec: playerSpec(), rivals, launch: !watching, laps: kind === 'quali' ? 1 : withRivals() ? settings.laps || 3 : undefined });
+  race = new Race(cur.track, { spec: playerSpec(), rivals, launch: !watching, laps: kind === 'quali' ? 1 : kind === 'online' ? net.laps : withRivals() ? settings.laps || 3 : undefined });
   bot = watching ? new Bot(cur.track, 0.9, playerSpec()) : null;
   // rain later: it starts somewhere between a third and two thirds of the way through
   sess.rain = sess.cond && sess.cond.weather === 'later' ? { at: (tr.gold || 120) * (race.laps / 3) * (0.3 + Math.random() * 0.35), k: 0, started: false } : null;
@@ -538,7 +539,7 @@ function startRace(tr, { watch = false, kind = 'trial', grid = undefined, then =
   bestRun = save.best[tr.id] || null;
   ghost = null; recordGhost = null; recordInfo = null;
   const token = ++raceToken;
-  const gm = withRivals() || sess.kind === 'quali' ? 'off' : settings.ghost;
+  const gm = withRivals() || sess.kind === 'quali' || sess.kind === 'online' ? 'off' : settings.ghost;
   const g = gm === 'best' || gm === 'both' ? loadGhost(tr.id) : null;
   if (g) { const f = decodeGhost(g.data); if (f && f.length > 6) { ghost = new GhostPlayer(f, cur.track); ghostAs('best', g.car || save.best[tr.id]?.car); } }
   if ((gm === 'record' || gm === 'both') && onlineEnabled) {
@@ -567,10 +568,11 @@ function startRace(tr, { watch = false, kind = 'trial', grid = undefined, then =
   showScreen(null);
   $('hud').classList.remove('hidden');
   $('lapTotal').textContent = race.laps;
-  $('posLine').classList.toggle('hidden', !withRivals());
+  $('posLine').classList.toggle('hidden', !withRivals() && kind !== 'online');
   $('gaps').classList.toggle('hidden', !withRivals());
   $('gapAhead').innerHTML = ''; $('gapBehind').innerHTML = '';
   $('posTotal').textContent = race.allCars.length;
+  if (kind === 'online') { $('posTotal').textContent = net.players.size; buildNetModels(); }
   const kl = (id) => keyLabel(settings.keys[id] || KEY_ACTIONS.find((x) => x.id === id).canon);
   $('hint').textContent = watching ? 'AUTOPILOT · Esc to stop' : `${kl('reset')} reset car · ${kl('restart')} restart · ${kl('camera')} camera · Esc pause`;
   if (!TOUCH) $('ltKey').textContent = kl('gas');
@@ -590,6 +592,7 @@ function setTarget() {
       : `Race · ${lvl} AI${save.raceBest[tr.id] ? ` · Best finish ${ordinal(save.raceBest[tr.id])}` : ''}`;
     return;
   }
+  if (sess.kind === 'online') { $('target').textContent = `Online race · room ${net ? net.code : ''}`; return; }
   if (sess.kind === 'quali') {
     const q = rivalQuali(tr).map((r) => r.time).sort((a, b) => a - b);
     $('target').innerHTML = `Qualifying · one lap · pole needs ${fmt(q[0])}`;
@@ -713,6 +716,24 @@ function resultsTable() {
 }
 
 let banked = 0;
+function finishOnline() {
+  if (net) net.finish(race.time);
+  save.stats.races++;
+  save.stats.laps += race.laps;
+  persist();
+  sound.finish(true);
+  $('finTime').textContent = fmt(race.time);
+  $('finNote').innerHTML = 'The results fill in as the others finish.';
+  const bestLap = Math.min(...race.lapTimes);
+  $('finLaps').innerHTML = race.lapTimes.map((l, k) => `<span class="${l === bestLap ? 'pb' : ''}">L${k + 1} ${fmt(l)}</span>`).join('');
+  $('finSectors').innerHTML = '';
+  $('finDrift').innerHTML = banked ? `<span style="color:var(--gold)">+${fmtPts(banked)} drift points to your wallet (${fmtPts(wallet())})</span>` : '';
+  $('finUnlock').innerHTML = ''; $('finOnline').textContent = '';
+  if (net) fillNetResults();
+  $('btnNext').disabled = !net;
+  $('btnNext').innerHTML = 'Back to the room <kbd>N</kbd>';
+  $('btnRetry').classList.add('hidden');
+}
 function finishQuali() {
   const tr = cur.tr, time = race.time, q = rivalQuali(tr);
   const grid = gridFromQuali(q, time);
@@ -743,6 +764,7 @@ function onFinish() {
   banked = watching ? 0 : Math.round(drift.total);
   if (banked > 0) { save.earned = (save.earned || 0) + banked; persist(); }
   if (kind === 'quali') { finishQuali(); return; }
+  if (kind === 'online') { finishOnline(); return; }
   const prevBest = save.best[tr.id];
   const timed = kind === 'trial' || kind === 'daily' || kind === 'weekly';
   const pb = timed && (!prevBest || time < prevBest.time - 1e-6);
@@ -847,6 +869,7 @@ function onFinish() {
 
 function nextAfterFinish() {
   if (sess.kind === 'cup') { showStandings(); return; }
+  if (sess.kind === 'online') { const n = net; net = null; exitToMenu(); net = n; backTo = 'menu'; showScreen('online'); return; }
   if (sess.kind === 'quali') { startRace(cur.tr, { kind: sess.then, grid: sess.qualiGrid }); return; }
   if (sess.kind === 'race') { const n2 = typeof cur.tr.id === 'number' ? TRACKS[cur.tr.id] : null; if (n2) openGrid(n2, 'race'); return; }
   if (cur.tr.community) { exitToMenu(); if (sess.fromEditor && edDef) openEditor(edDef); else { trackMode = 'community'; backTo = 'menu'; showScreen('tracks'); } return; }
@@ -866,6 +889,8 @@ function clearRaceView() {
 }
 function exitToMenu() {
   carModel.setDamage(null);
+  if (sess.kind === 'online') leaveNet();
+  for (const m of netModels.values()) m.root.visible = false;
   if (carDef.id !== (save.car || 'gt')) useCar(save.car || 'gt'); // after the weekly's set car
   mode = 'menu';
   $('rotate').classList.add('hidden');
@@ -980,7 +1005,7 @@ function refreshDailyButton() {
 }
 
 // ---------- screens ----------
-const SCREENS = ['menu', 'tracks', 'garage', 'boards', 'stats', 'settings', 'controls', 'pause', 'finish', 'cups', 'standings', 'grid', 'editor'];
+const SCREENS = ['menu', 'tracks', 'garage', 'boards', 'stats', 'settings', 'controls', 'pause', 'finish', 'cups', 'standings', 'grid', 'editor', 'online'];
 let backTo = 'menu';
 function showScreen(id) {
   for (const s of SCREENS) $(s).classList.toggle('hidden', s !== id);
@@ -993,6 +1018,7 @@ function showScreen(id) {
   if (id === 'cups') renderCups();
   if (id === 'grid') renderGrid();
   if (id === 'controls') renderKeys();
+  if (id === 'online') renderOnline();
 }
 for (const b of document.querySelectorAll('.back')) b.addEventListener('click', () => { sound.click(); showScreen(backTo); });
 
@@ -1053,6 +1079,100 @@ function renderTracks() {
   let cg = 0;
   for (const tr of TRACKS) if (medalFor(tr, carBestOf(tr), carDef.id)?.id === 'gold') cg++;
   $('trackTotals').textContent = trackMode === 'race' ? `${c.gold} gold · ${c.any} medals of ${TRACKS.length}` : `Medals for the ${carDef.name} (change car in the Garage) · ${cg} gold in this car · ${c.gold} gold in any car`;
+}
+
+// ---------- online races ----------
+let net = null, netModels = new Map(), netSentAt = 0;
+for (const sel of ['onTrack', 'onRoomTrack']) $(sel).innerHTML = TRACKS.map((t) => `<option value="${t.id}">${t.id}. ${esc(t.name)}${t.wet ? ' (rain)' : ''}</option>`).join('');
+const meNet = () => ({ name: save.name, car: save.car || 'gt', paint: save.paint });
+function onMsg(t) { $('onMsg').textContent = t || ''; }
+function renderOnline() {
+  $('onLobby').classList.toggle('hidden', !!net);
+  $('onRoom').classList.toggle('hidden', !net);
+  if (!net) return;
+  $('onRoomCode').textContent = net.code;
+  const tr = TRACKS[net.track - 1];
+  $('onRoomSub').textContent = net.isHost
+    ? `Share the code with your friends. Start when everyone's in (2 to 8 players).`
+    : `${tr ? `${tr.id}. ${tr.name}` : ''} · ${net.laps} lap${net.laps > 1 ? 's' : ''} · waiting for the host to start${net.racing ? ' (a race is on: you join the next one)' : ''}`;
+  $('onHostCtl').classList.toggle('hidden', !net.isHost);
+  $('onRoomTrack').value = net.track; $('onRoomLaps').value = net.laps;
+  $('onPlayers').innerHTML = net.list.map((p, k) => `<div class="r${p.id === net.meId ? ' me' : ''}"><span>${k + 1}</span><span><span class="sw" style="background:${hex(paintOf(p.paint).color)}"></span>${esc(p.name)}${p.id === 'host' ? ' (host)' : ''} <span class="l">${esc(carById(p.car).name)}</span></span><span class="t"></span></div>`).join('');
+  $('onStart').classList.toggle('hidden', !net.isHost);
+  $('onStart').disabled = net.players.size < 2 || net.racing;
+}
+function wireNet(n) {
+  net = n;
+  n.on.room = () => { if (!$('online').classList.contains('hidden')) renderOnline(); };
+  n.on.start = () => { const tr = TRACKS[n.track - 1]; if (tr) startRace(tr, { kind: 'online' }); };
+  n.on.fin = () => { if (sess.kind === 'online' && mode === 'finished') fillNetResults(); };
+  n.on.left = (id) => { const m = netModels.get(id); if (m) { scene.remove(m.root); m.dispose(); netModels.delete(id); } if (!$('online').classList.contains('hidden')) renderOnline(); if (sess.kind === 'online' && mode === 'finished') fillNetResults(); };
+  n.on.closed = (why) => { leaveNet(); if (sess.kind === 'online' && race) exitToMenu(); backTo = 'menu'; showScreen('online'); onMsg(why); };
+  renderOnline();
+}
+function leaveNet() {
+  if (net) net.close();
+  net = null;
+  for (const m of netModels.values()) { scene.remove(m.root); m.dispose(); }
+  netModels.clear();
+}
+$('onHost').addEventListener('click', () => {
+  sound.click(); onMsg('Opening a room…');
+  NetRace.host(meNet(), Number($('onTrack').value), Number($('onLaps').value)).then((n) => { onMsg(''); wireNet(n); }).catch((e) => onMsg(e.message));
+});
+$('onJoin').addEventListener('click', () => {
+  sound.click();
+  const code = $('onCode').value.trim();
+  if (!code) { onMsg('Type the room code your friend gave you.'); return; }
+  onMsg('Joining…');
+  NetRace.join(code, meNet()).then((n) => { onMsg(''); wireNet(n); }).catch((e) => onMsg(e.message));
+});
+$('onCode').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $('onJoin').click(); });
+for (const id of ['onRoomTrack', 'onRoomLaps']) $(id).addEventListener('change', () => { if (net && net.isHost) net.setRace(Number($('onRoomTrack').value), Number($('onRoomLaps').value)); });
+$('onStart').addEventListener('click', () => { if (net && net.isHost && net.players.size >= 2) { sound.click(); net.start(); } });
+$('onLeave').addEventListener('click', () => { sound.click(); leaveNet(); renderOnline(); });
+/** The other players' cars, in their own car and paint. */
+function buildNetModels() {
+  for (const m of netModels.values()) { scene.remove(m.root); m.dispose(); }
+  netModels.clear();
+  for (const p of net.list) {
+    if (p.id === net.meId) continue;
+    const m = buildCar({ kind: carById(p.car).model, color: paintOf(p.paint).color });
+    m.setPaint(paintOf(p.paint).color, paintOf(p.paint).metal);
+    m.root.visible = false;
+    scene.add(m.root);
+    netModels.set(p.id, m);
+  }
+}
+/** Online race order: finished drivers by time, then everyone else by distance. */
+function netOrder() {
+  const rows = net.list.map((p) => ({ id: p.id, name: p.id === net.meId ? save.name : p.name, me: p.id === net.meId, paint: p.paint, car: p.car,
+    progress: p.id === net.meId ? race.progress : p.progress || 0, finished: p.id === net.meId ? (race.state === 'finished' ? race.time : 0) : p.fin || 0 }));
+  return rows.sort((a, b) => (a.finished && b.finished ? a.finished - b.finished : a.finished ? -1 : b.finished ? 1 : b.progress - a.progress));
+}
+function fillNetResults() {
+  const order = netOrder(), pos = order.findIndex((r) => r.me) + 1;
+  $('finTitle').textContent = `FINISHED ${ordinal(pos).toUpperCase()}`;
+  $('finMedal').innerHTML = pos <= 3 ? `<div class="medalbig ${['gold', 'silver', 'bronze'][pos - 1]}">${ordinal(pos).toUpperCase()}</div>` : `<div class="sub">${ordinal(pos)} place</div>`;
+  $('finTable').innerHTML = order.map((r, k) => `<div class="r${r.me ? ' me' : ''}"><span>${k + 1}</span><span><span class="sw" style="background:${hex(paintOf(r.paint).color)}"></span>${esc(r.name)} <span class="l">${esc(carById(r.car).name)}</span></span><span class="t">${r.finished ? fmt(r.finished) : 'racing…'}</span></div>`).join('');
+}
+/** Each frame of an online race: send where I am, draw everyone else. */
+function netFrame(tags, dots) {
+  const now = performance.now();
+  if (now - netSentAt > 50 && race.state !== 'countdown') { netSentAt = now; net.sendState({ ...race.car, progress: race.progress }); }
+  const order = netOrder();
+  for (const [id, m] of netModels) {
+    const p = net.pose(id, now);
+    const pl = net.players.get(id);
+    if (!p || !pl) { m.root.visible = false; continue; }
+    m.root.visible = true;
+    m.pose(p.x, p.y, p.z, p.h, p.pitch);
+    m.animate(1 / 60, { steer: p.steer, speed: p.speed });
+    const color = hex(paintOf(pl.paint).color);
+    tags.push({ x: p.x, y: p.y, z: p.z, color, html: `<span class="tp">P${order.findIndex((r) => r.id === id) + 1}</span>${esc(pl.name)}` });
+    dots.push([p, color]);
+  }
+  $('posNum').textContent = order.findIndex((r) => r.me) + 1;
 }
 
 // ---------- community circuits and the track editor ----------
@@ -1499,7 +1619,7 @@ click('btnPlay', () => startRace(nextTrack()));
 click('btnRaceMode', () => { backTo = 'menu'; trackMode = 'race'; showScreen('tracks'); });
 click('btnCups', () => { backTo = 'menu'; showScreen('cups'); });
 click('btnDaily', () => { const d = todaysDaily(); if (d) startRace(d, { kind: 'daily' }); });
-click('btnOnline', () => toast('Online races are coming in the next update', 1800));
+click('btnOnline', () => { backTo = 'menu'; showScreen('online'); });
 click('btnWeekly', () => { const w = thisWeek(); if (w) startRace(w, { kind: 'weekly' }); });
 click('btnTracks', () => { backTo = 'menu'; trackMode = 'trial'; showScreen('tracks'); });
 click('btnGarage', () => { backTo = 'menu'; showScreen('garage'); });
@@ -1525,7 +1645,7 @@ function pause() {
   sound.silence();
   backTo = 'pause';
   // restarting a championship round isn't allowed (it would let you re-roll a bad result)
-  $('btnRestart').classList.toggle('hidden', sess.kind === 'cup');
+  $('btnRestart').classList.toggle('hidden', sess.kind === 'cup' || sess.kind === 'online');
   showScreen('pause');
 }
 function resume() {
@@ -1656,7 +1776,7 @@ input.handlers.key = (code) => {
   sound.init();
   if (mode === 'race') {
     if (code === 'Escape') { if (watching) exitToMenu(); else pause(); }
-    else if (code === 'KeyR' && sess.kind !== 'cup') startRace(cur.tr, { watch: watching, kind: sess.kind });
+    else if (code === 'KeyR' && sess.kind !== 'cup' && sess.kind !== 'online') startRace(cur.tr, { watch: watching, kind: sess.kind });
     else if (code === 'KeyC' && !watching) race.recover();
     else if (code === 'KeyV') { settings.camera = CAMERAS[(CAMERAS.indexOf(settings.camera) + 1) % CAMERAS.length]; persist(); }
     else if (code === 'KeyL') { settings.racingLine = !settings.racingLine; rebuildWorld(); persist(); toast(`Racing line ${settings.racingLine ? 'on' : 'off'}`, 900); }
@@ -1679,7 +1799,7 @@ input.handlers.key = (code) => {
     if (code === 'Escape' && !$('pause').classList.contains('hidden')) resume();
     else if (code === 'Escape') showScreen('pause');
   } else if (mode === 'finished') {
-    if (code === 'KeyR' && sess.kind !== 'cup') startRace(cur.tr, { watch: watching, kind: sess.kind });
+    if (code === 'KeyR' && sess.kind !== 'cup' && sess.kind !== 'online') startRace(cur.tr, { watch: watching, kind: sess.kind });
     else if ((code === 'KeyN' || code === 'Enter') && !$('btnNext').disabled) nextAfterFinish();
     else if (code === 'KeyP') $('btnReplay').click();
     else if (code === 'Escape') exitToMenu();
@@ -1875,8 +1995,9 @@ function frame(now) {
       });
     }
 
+    if (sess.kind === 'online' && net) netFrame(tags, dots);
     // ghosts: your best (cyan) and the world record (gold)
-    const gm = withRivals() || sess.kind === 'quali' ? 'off' : settings.ghost;
+    const gm = withRivals() || sess.kind === 'quali' || sess.kind === 'online' ? 'off' : settings.ghost;
     const gp = showGhost(ghostModel, gm === 'best' || gm === 'both' ? ghost : null, c, dt);
     const rpG = showGhost(recordModel, gm === 'record' || gm === 'both' ? recordGhost : null, c, dt);
     if (rpG && recordInfo && !recordInfo.me) tags.push({ x: rpG.x, y: rpG.y, z: rpG.z, color: '#ffd25a', html: `<span class="tp">WR</span>${esc(recordInfo.name)} · ${fmt(recordInfo.time)}` });

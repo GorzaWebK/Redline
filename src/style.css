@@ -517,3 +517,11 @@ button.weekly .dt { color: var(--gold); }
 .card .like { position: absolute; right: 8px; bottom: 8px; width: auto; padding: 2px 8px; font-size: 13px; }
 .card .ed { position: absolute; right: 8px; top: 8px; width: auto; padding: 2px 8px; font-size: 12px; }
 @media (max-height: 560px) { #editor .edside { padding: 8px 12px; } .edhelp { display: none; } .edrow { margin: 3px 0; } }
+
+/* online races */
+.joinrow { display: flex; gap: 8px; }
+.joinrow input { flex: 1; font: 700 20px var(--cond); letter-spacing: 3px; text-transform: uppercase; }
+.joinrow button { width: auto; padding: 8px 18px; }
+.roomcode { font: 700 18px var(--cond); letter-spacing: 3px; color: var(--muted); margin: 4px 0; }
+.roomcode b { color: var(--gold); font-size: 40px; letter-spacing: 6px; margin-left: 10px; user-select: all; }
+#onMsg { margin-top: 10px; color: #ff9a8e; min-height: 1.2em; }

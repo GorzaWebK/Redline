@@ -125,6 +125,30 @@
         <div id="cupList" class="cuplist"></div>
       </div>
     </div>
+    <!-- online races -->
+    <div id="online" class="screen hidden">
+      <div class="panel">
+        <div class="head"><h2>Online race</h2><button class="back">Back</button></div>
+        <div id="onLobby">
+          <p class="sub">Race up to seven friends live. One of you hosts a room and shares its code; everyone else joins with it. Cars don't collide online, so nobody's lag can knock you off.</p>
+          <h3 class="gh">Host a race</h3>
+          <label class="edrow">Circuit <select id="onTrack"></select></label>
+          <label class="edrow">Laps <select id="onLaps"><option value="1">1</option><option value="3" selected>3</option><option value="5">5</option></select></label>
+          <button id="onHost" class="primary">Host a room</button>
+          <h3 class="gh">Join a race</h3>
+          <div class="joinrow"><input id="onCode" maxlength="8" placeholder="Room code" spellcheck="false" autocapitalize="characters" /><button id="onJoin">Join</button></div>
+        </div>
+        <div id="onRoom" class="hidden">
+          <div class="roomcode">ROOM <b id="onRoomCode"></b></div>
+          <p class="sub" id="onRoomSub"></p>
+          <div id="onHostCtl"><label class="edrow">Circuit <select id="onRoomTrack"></select></label><label class="edrow">Laps <select id="onRoomLaps"><option value="1">1</option><option value="3">3</option><option value="5">5</option></select></label></div>
+          <div id="onPlayers" class="sttable"></div>
+          <div class="row"><button id="onStart" class="primary">Start the race</button><button id="onLeave">Leave the room</button></div>
+        </div>
+        <div id="onMsg" class="sub"></div>
+      </div>
+    </div>
+
     <!-- track editor -->
     <div id="editor" class="screen hidden">
       <canvas id="edCanvas"></canvas>

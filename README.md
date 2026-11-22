@@ -51,7 +51,7 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 - **Daily challenge:** A new circuit every day (UTC), the same for everyone. The difficulty, setting and weather change from day to day, and like every circuit it's proven drivable by the autopilot first. It has its own online leaderboard (the first page of Leaderboards) and a streak for days in a row.
 - **Weekly tournament:** One circuit a week (Monday to Sunday, UTC) that everyone drives in the **same car**, stock (no tuning), with its own leaderboard (the second page of Leaderboards). It rotates through Grand Prix, classic and figure-of-eight layouts. Medals pay drift points into your wallet once per week: bronze 1,500, silver 3,000, gold 6,000.
 - **Community circuits** (Tracks → Community): draw your own circuit in the **track editor**, a top-down map where you place the points the road runs through (click the dotted line to add a point, drag to move, double-click or hold to remove; pan and zoom). It previews the smoothed road as you go and says what's wrong if it can't be built (corners too tight, parts too close together). Choose the name, setting, road width and how hilly it is. **Test drive** it any time. To **publish**, the autopilot first has to get round cleanly, which also sets its gold time. Published circuits appear for everyone under Newest and Most liked, each with its own leaderboard, and players can like them (once each). Editing a published circuit makes a new copy.
-- **Online race** (coming next): the menu button is a placeholder for now.
+- **Online race:** race up to seven friends live. One player hosts a room (choosing the circuit and 1, 3 or 5 laps) and shares its five-letter code; the others join with it. The room shows everyone's name, car and paint, and the host starts the race when everyone's in. Each player drives their own car on their own computer and sends where it is 20 times a second, so the other cars move smoothly with name tags and positions, and the results table fills in as people finish. Cars don't collide online, so nobody's lag can knock you off. Afterwards everyone goes back to the room for another race. It's peer-to-peer like Foundry Arena (PeerJS's free matchmaking server, then direct connections between players); `?net=local` links tabs of the same browser instead, for testing.
 
 ### Circuits
 - **30 circuits** in five settings of six: **Meadow** (green hills, day), **Canyon** (desert and red mesas), **Alpine** (snowy passes at golden hour), **Night City** (street lights, glowing towers, headlights) and **Riviera** (sunny coast). Every race is 3 laps from a standing start, with a countdown on the start gantry's lights.
@@ -126,6 +126,8 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 | `src/tuning.js` | Tuning kits, prices and presets, and the tuned car physics |
 | `src/community.js` | Community circuits: building, checking and sharing editor layouts |
 | `src/editor.js` | The track editor (top-down map) |
+| `src/netrace.js` | Online races: rooms, passing cars' positions and finishes between players |
+| `src/transport.js` | Peer-to-peer connections (PeerJS, or tabs of one browser for testing) |
 | `src/achievements.js` | The achievements |
 | `src/account.js` | Account codes: packing and merging saves |
 | `src/replay.js` | Replay TV cameras and the director that picks them |
