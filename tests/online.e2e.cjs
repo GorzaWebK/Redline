@@ -159,6 +159,36 @@ async function browserTests() {
     await carl.waitForFunction(() => window.__redline.save.best[1], null, { timeout: 15000 }).catch(() => {});
     const got = await carl.evaluate(() => ({ best: window.__redline.save.best[1] && window.__redline.save.best[1].time, name: window.__redline.save.name }));
     check(got.best === bobBest && got.name === 'Bob', `another browser loads the account: ${JSON.stringify(got)}`);
+
+    // community circuits: Carl draws one, the autopilot checks it, he publishes it
+    await carl.click('#acctBox .back, #stats .back').catch(() => carl.evaluate(() => document.querySelector('#stats .back').click()));
+    await carl.click('#btnTracks');
+    await carl.click('#trackTabs button[data-mode=community]');
+    await carl.click('#trackList .card');
+    await carl.fill('#edName', 'Carls Loop'); await carl.press('#edName', 'Enter'); await carl.locator('#edName').dispatchEvent('change');
+    await carl.click('#edCheck');
+    await carl.waitForFunction(() => /ready to publish/.test(document.getElementById('edStatus').textContent), null, { timeout: 20000 }).catch(() => {});
+    await carl.click('#edPublish');
+    await carl.waitForFunction(() => /Published/.test(document.getElementById('edStatus').textContent), null, { timeout: 15000 }).catch(() => {});
+    check(/Published/.test(await carl.textContent('#edStatus')), `a circuit is published from the editor ("${await carl.textContent('#edStatus')}")`);
+    await carl.context().close();
+    // Dana finds it under Newest and likes it
+    const ctx4 = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const dana = await ctx4.newPage();
+    dana.on('pageerror', (e) => check(false, `page error: ${e.message}`));
+    await dana.goto(URL);
+    await dana.waitForFunction(() => window.__redline, null, { timeout: 60000 });
+    await dana.click('#btnTracks');
+    await dana.click('#trackTabs button[data-mode=community]');
+    await dana.waitForSelector('#trackList .theme-block:nth-child(2) .card', { timeout: 15000 }).catch(() => {});
+    const shared = await dana.$$eval('#trackList .theme-block:nth-child(2) .card', (els) => els.map((e) => e.textContent));
+    check(shared.some((t) => t.includes('Carls Loop') && t.includes('by Bob')), `another player sees it under Newest: ${JSON.stringify(shared)}`);
+    await dana.click('#trackList .theme-block:nth-child(2) .card .like');
+    await dana.waitForFunction(() => /👍 1/.test(document.querySelector('#trackList .theme-block:nth-child(2) .card .like').textContent), null, { timeout: 10000 }).catch(() => {});
+    check(/👍 1/.test(await dana.textContent('#trackList .theme-block:nth-child(2) .card .like')), 'they can like it');
+    await dana.click('#trackList .theme-block:nth-child(2) .card .nm');
+    await dana.waitForFunction(() => window.__redline.mode === 'race', null, { timeout: 15000 }).catch(() => {});
+    check(await dana.evaluate(() => window.__redline.cur.tr.name === 'Carls Loop' && window.__redline.mode === 'race'), 'and race it');
     await browser.close();
   } finally {
     server.kill();
