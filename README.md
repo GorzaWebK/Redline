@@ -1,14 +1,39 @@
-# Redline
+<div align="center">
+
+<img src="docs/media/night-city-autopilot.gif" width="720" alt="Redline: a lap of a Night City circuit">
+
+# 🏁 R E D L I N E 🏁
+
+### Pick a circuit. Find the racing line. Beat your ghost. Take the gold.
+
+<a href="https://gorzawebk.github.io/Redline/"><img src="https://img.shields.io/badge/Play%20now-in%20your%20browser-E10600?style=for-the-badge" alt="Play now: in your browser"></a>
+<img src="https://img.shields.io/badge/Platform-PC%20·%20phone%20·%20tablet-111111?style=for-the-badge" alt="Platform: PC · phone · tablet">
+<img src="https://img.shields.io/badge/Input-keyboard%20·%20gamepad%20·%20touch-333333?style=for-the-badge" alt="Input: keyboard · gamepad · touch">
+<img src="https://img.shields.io/badge/Built%20with-Three.js-000000?style=for-the-badge&logo=threedotjs&logoColor=white" alt="Built with: Three.js">
+
+<sub>▲ A real lap, recorded in the browser with the game's built-in <b>Watch the autopilot drive</b> mode.</sub>
+
+</div>
+
+---
 
 A time trial racing game for the browser. Pick a circuit, find the racing line, beat your ghost and take the gold.
 
-**Play:** https://gorzawebk.github.io/Redline/
-
-Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, best held sideways). Everything is made in code: the cars, circuits, scenery, textures, sky, sound effects and music. There are no image or audio files.
+Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, best held sideways). Everything in the game is made in code: the cars, circuits, scenery, textures, sky, sound effects and music. The game itself loads no image or audio files (the pictures on this page are only screenshots).
 
 > "Redline" is a working title.
 
-## Controls
+## 📸 Photo finish
+
+<table>
+<tr><td align="center" valign="top"><img src="docs/media/chase-cam.jpg" width="400" alt="Chase cam, Meadow circuit"><br><sub>Chase cam, Meadow circuit</sub></td><td align="center" valign="top"><img src="docs/media/hood-cam.jpg" width="400" alt="Hood cam at 140 km/h"><br><sub>Hood cam at 140 km/h</sub></td></tr>
+<tr><td align="center" valign="top"><img src="docs/media/alpine.jpg" width="400" alt="Snow on the Alpine circuits"><br><sub>Snow on the Alpine circuits</sub></td><td align="center" valign="top"><img src="docs/media/garage.jpg" width="400" alt="The garage: cars, colours and tuning"><br><sub>The garage: cars, colours and tuning</sub></td></tr>
+<tr><td align="center" valign="top"><img src="docs/media/tracks.jpg" width="400" alt="30 circuits in five settings"><br><sub>30 circuits in five settings</sub></td><td align="center" valign="top"><img src="docs/media/alpine-autopilot.gif" width="400" alt="Autopilot through the Alpine curves"><br><sub>Autopilot through the Alpine curves</sub></td></tr>
+</table>
+
+<div align="center"><sub>🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜🟥⬜</sub></div>
+
+## 🎮 Controls
 
 | Input | Action |
 | --- | --- |
@@ -30,9 +55,9 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 
 **Gamepad:** left stick steers, right trigger (or A) accelerates, left trigger (or B) brakes, X is the handbrake. Start pauses, Y restarts, Back resets the car, RB changes camera.
 
-## Features
+## 🏆 Features
 
-### Modes
+### 🚦 Modes
 - **Time trial:** 3 laps against the clock, your ghost and the world record. Medals, splits and online leaderboards.
 - **Race rivals:** Race five AI drivers from a staggered grid. Each has a personality and their own car:
   - **Kade Mercer** (racer, Redline GT): attacks and defends hard.
@@ -53,13 +78,13 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 - **Community circuits** (Tracks → Community): draw your own circuit in the **track editor**, a top-down map where you place the points the road runs through (click the dotted line to add a point, drag to move, double-click or hold to remove; pan and zoom). It previews the smoothed road as you go and says what's wrong if it can't be built (corners too tight, parts too close together). Choose the name, setting, road width and how hilly it is. **Test drive** it any time. To **publish**, the autopilot first has to get round cleanly, which also sets its gold time. Published circuits appear for everyone under Newest and Most liked, each with its own leaderboard, and players can like them (once each). Editing a published circuit makes a new copy.
 - **Online race:** race up to seven friends live. One player hosts a room (choosing the circuit and 1, 3 or 5 laps) and shares its five-letter code; the others join with it. The room shows everyone's name, car and paint, and the host starts the race when everyone's in. Each player drives their own car on their own computer and sends where it is 20 times a second, so the other cars move smoothly with name tags and positions, and the results table fills in as people finish. Cars don't collide online, so nobody's lag can knock you off. Afterwards everyone goes back to the room for another race. It's peer-to-peer like Foundry Arena (PeerJS's free matchmaking server, then direct connections between players); `?net=local` links tabs of the same browser instead, for testing.
 
-### Circuits
+### 🛣️ Circuits
 - **30 circuits** in five settings of six: **Meadow** (green hills, day), **Canyon** (desert and red mesas), **Alpine** (snowy passes at golden hour), **Night City** (street lights, glowing towers, headlights) and **Riviera** (sunny coast). Every race is 3 laps from a standing start, with a countdown on the start gantry's lights.
 - **Riviera Grand Prix circuits (25-30):** built a different way from the rest, piece by piece like a real Grand Prix track: long straights into tight hairpins, chicanes, fast kinks and double hairpins. Two of them (Crossover and Bridgeworks) are **figures of eight**, where the track crosses itself on a bridge with a deck and pillars.
 - **Rain** on four circuits (4, 11, 16 and 22): less grip, a grey sky, falling rain, spray off the tyres and a shiny wet road. Their gold times are set in the wet.
 - **Difficulty:** Circuits get longer (0.8 km up to 1.9 km a lap), narrower, hillier and twistier, with tighter hairpins, as you go. All 30 are open from the start: race them in any order.
 
-### Cars, tuning and driving
+### 🔧 Cars, tuning and driving
 - **Four cars**, each with its own handling, body shape and engine sound:
   - **Redline GT:** the all-rounder.
   - **Pocket Rocket:** a light hatchback that brakes late and turns in like a go-kart.
@@ -79,7 +104,7 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 - **Kerbs** rumble (sound, camera judder, gamepad vibration) and unsettle the car: less grip the further onto them you go (more in the wet) and a jolt from each stripe, stronger at speed.
 - **Damage** (cosmetic): wall hits and contact bash the part that took the hit. Trim hangs off, the wing tilts, lights break and the paint gets scuffed. The rivals' cars get damaged too.
 
-### Help on track
+### 🧭 Help on track
 - **Racing line guide:** A line on the road shows the fastest way round. It's **green** where you can go flat out, **yellow** through corners and **red** where you should brake. Switch it off in Settings or with **L**.
 - **Driving hints** on the first three circuits: a **BRAKE** prompt when you're coming into a corner too fast, and a tip to try a drift on the first tight corner (Settings to switch off).
 - **Medals:** Every circuit has gold, silver and bronze times **for each car**. Gold is the autopilot's own time in that car, silver is 10% slower and bronze 25% slower, so the Apex V10 has to be much quicker for gold than the Pocket Rocket. The HUD and the track cards show the medals for the car you're driving; a circuit's medal (for unlocks and achievements) is the best you've won there in any car.
@@ -89,11 +114,11 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 - **Colour-blind mode** (Settings): sector times get symbols (◆ ▲ ▼), and the racing line, gaps and flashes use blue and orange instead of green and red.
 - **Minimap** with you, the rivals and your ghosts, plus a **WRONG WAY** warning.
 
-### Replays and photos
+### 🎥 Replays and photos
 - **Replays:** Watch your run from the finish screen (**P**), or the world record from the Leaderboards page, filmed by trackside TV cameras that cut and zoom as the car goes by. Space pauses, the arrows skip 5 seconds, 1/2/3 set the speed and C switches to a chase camera.
 - **Photo mode:** From the pause menu: move a free camera around the car (drag, WASD, Q/E and the mouse wheel), then press Enter to save a picture.
 
-### Progress
+### 🥇 Progress
 - **Achievements:** 26 to earn, with a pop-up when you get one. They cover finishing and medals, mastering each setting, clean races, rain, drifting, launches, race wins, cups, daily streaks, distance and top speed, collecting the cars and photo mode. Three unlock paints: Carbon, Neon and Chrome.
 - **Garage:** Choose your car and one of 15 paints. Three paints are free; the rest unlock with medals and achievements (up to Gold Leaf for gold on 24 circuits).
 - **Profile:** Stats (races, wins, cups, laps, distance, time, top speed, drift points, medals and the daily streak), the achievements list and your account code.
@@ -104,7 +129,7 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 - **Watch the autopilot:** The link under the main menu lets the autopilot drive the next circuit.
 - **Settings:** Graphics quality (High, Medium, Low), **dynamic resolution** (draws fewer pixels when the frame rate drops, then comes back up), camera, km/h or mph, field of view, racing line, ghost, AI level, rear-view mirror, driving hints, gamepad vibration, camera shake, effects and music volume, mute an FPS counter and colour-blind mode. All are saved. Cars are drawn with as few parts as possible (about half the draw calls of before), so six cars run more smoothly on phones.
 
-## How it's built
+## 🛠️ How it's built
 
 - Plain JavaScript + [Vite](https://vite.dev), [three.js](https://threejs.org) for 3D, the Web Audio API for sound, and Firebase for the online leaderboards.
 - Circuits are generated from a seed and a difficulty (`src/track.js`). The same seed always gives the same circuit: a closed loop from a smoothed spline, with corners no tighter than the difficulty allows, no part close enough to another to share a wall, gentle hills, and the start on the straightest stretch. The racing line is worked out by repeatedly pulling each point of the line straighter within the road's width. The Riviera circuits are laid out piece by piece instead (a straight, then a hairpin, chicane, kink or corner, and so on), with the last two straights solved so the loop closes exactly; a figure of eight is a lemniscate whose crossing is lifted onto a bridge.
@@ -151,7 +176,7 @@ Plays on PC (keyboard or gamepad) and on phones and tablets (touch controls, bes
 | `firebase/database.rules.json` | Redline's security rules on their own |
 | `firebase/database.rules.full.json` | Complete rules file for the Firebase console (Foundry Arena + Skyhook + Redline) |
 
-## Online leaderboards
+## 🌍 Online leaderboards
 
 Redline uses the same Firebase project as Foundry Arena and Skyhook ("foundry-arena"), with its own `redline/` section:
 
@@ -167,7 +192,7 @@ Redline uses the same Firebase project as Foundry Arena and Skyhook ("foundry-ar
 
 The security rules only let a signed-in driver write their own entry (or their account's, once that browser has joined it with the code) and only improve their time. They also refuse impossible times, unknown boards and cars, odd names and extra fields, and only accept a ghost that matches the saved time. **Paste the whole of `firebase/database.rules.full.json` into the Firebase console** (Realtime Database → Rules → Publish) to switch Redline's leaderboards on. It contains Foundry Arena's and Skyhook's rules too, unchanged.
 
-## Development
+## 🧰 Development
 
 ```bash
 npm install
@@ -180,3 +205,12 @@ npm run build          # production build in dist/
 `RULES_FILE=firebase/database.rules.full.json npm run test:online` tests the complete console file.
 
 Pushing to `main` deploys to GitHub Pages through `.github/workflows/deploy.yml`. It runs the tests, builds and publishes `dist/`.
+
+---
+
+<div align="center">
+
+🏁 **Lights out and away you go.** 🏁<br>
+<sub>Beat the gold. Then beat your own ghost.</sub>
+
+</div>
